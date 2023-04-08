@@ -202,8 +202,6 @@ def getMapping(performanceMIDI: pretty_midi.PrettyMIDI, roboticMIDI: pretty_midi
         mapping = translateMapping(mapping, r_notes, p_notes)
         indices += mapping
     indices.sort(key = lambda x : x[0])
-    print(len(robotic_notes))
-    print(len(performance_notes))
     return [(robotic_notes[x[0]], performance_notes[x[1]]) for x in indices]
 
 if __name__ == '__main__':
