@@ -6,12 +6,14 @@ import os
 from extract import getMapping
 import pretty_midi
 from torch.utils.data.sampler import SubsetRandomSampler, SequentialSampler
+import yaml
 
 class MMGDataset(Dataset):
     def __init__(self, data_cfg):
         super().__init__()
         self.dataset_path = data_cfg.get("dataset_path")
         self.metadata_path = data_cfg.get("metadata_path")
+        self.dataset_save_path = data_cfg.get("dataset_save_path")
 
         self.data = self._build_dataset()
 
@@ -34,11 +36,22 @@ class MMGDataset(Dataset):
 
     def __getitem__(self, index):
         robotic_path, performance_path = self.data.iloc[index]
-        mapping = getMapping(pretty_midi.PrettyMIDI(performance_path), pretty_midi.PrettyMIDI(robotic_path))
+        mapping = getMapping(pretty_midi.PrettyMIDI(os.path.join(self.dataset_path, performance_path)), 
+                             pretty_midi.PrettyMIDI(os.path.join(self.dataset_path, robotic_path)))
         # don't include pitch
         robotic_notes = np.delete(mapping[:,0], -1, axis=1)
         performance_notes = np.delete(mapping[:,1], -1, axis=1)
         return torch.tensor(robotic_notes), torch.tensor(performance_notes)
+
+def load_config(path) -> dict:
+    """
+    Loads and parses a YAML configuration file.
+    path: path to YAML configuration file
+    return: configuration dictionary
+    """
+    with open(path, "r", encoding="utf-8") as ymlfile:
+        cfg = yaml.load(ymlfile, Loader=yaml.Loader)
+    return cfg
 
 def load_data(data_cfg: dict):
 
