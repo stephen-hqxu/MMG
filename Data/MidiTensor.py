@@ -13,20 +13,22 @@ from matplotlib import colors
 
 # System
 from typing import List, Tuple
-from enum import IntEnum
 
 class MidiTensor:
     """
     @brief MidiTensor is a tensor data representation of a MIDI file.
 
     The MIDI tensor is a 2D array (for now, can be changed in the future if we need more information for training)
-    where the x-axis represents the time and y-axis is pitch of note.
+    where the x-axis represents the time and y-axis is pitch of note. The value of each matrix entry represents velocity.
     Time is discretised into time step, and the resolution of time step is determined from the quantisation of MIDI file.
     The number of pitch is fixed; for our application, we focus mainly on piano music,
     since there are 88 notes on a common domestic piano, we limit the y-axis to 88 dimensions.
 
     The tensor memory is formatted by spanning the note property (i.e., velocity) across the start and end time of a note.
     Essentially, the process converts MIDI file into piano roll.
+
+    In addition, other properties from a MIDI music are also included, such as control changes (e.g., pedal data),
+    which are encoded as a 1D array, where the length is the number of time step as in the velocity matrix.
     """
     NOTE_START: int = pretty_midi.note_name_to_number("A0")
     """
@@ -37,11 +39,10 @@ class MidiTensor:
     The exact number of note supported, based on the number of note on a standard domestic piano.
     """
 
-    class TensorType(IntEnum):
-        """
-        @brief Specifies the type of tensor memory.
-        """
-        VELOCITY = 0x00
+    CONTROLLER_DAMPER: int = 64
+    """
+    The controller number of the damper pedal.
+    """
 
     def __init__(this, midi: PrettyMIDI):
         """
@@ -51,31 +52,63 @@ class MidiTensor:
         It is assumed that the MIDI file only contains a single instrument of piano.
         It does not matter if tracks are merged into a single channel.
         """
+        note_event: List[Tuple[int, int, int, int]] = list() # start, end, velocity, pitch
+        damper_event: List[Tuple[int, int]] = list() # time, value
         # extract all note information from the MIDI data into flattened arrays
-        note: List[Tuple[float, float, int, int]] = [(note.start, note.end, note.velocity, note.pitch)
-            for instrument in midi.instruments for note in instrument.notes]
+        for instrument in midi.instruments:
+            note_event.extend([(midi.time_to_tick(note.start), midi.time_to_tick(note.end), note.velocity, note.pitch) for note in instrument.notes])
+            damper_event.extend([(midi.time_to_tick(cc.time), cc.value) for cc in instrument.control_changes if cc.number == MidiTensor.CONTROLLER_DAMPER])
+
         # sort the note by start time; this is to make sure the behaviour is deterministic when dealing with different MIDI inputs.
-        note = sorted(note, key = lambda n : n[0])
+        # if start time is the same (for instance a chord), then sort by pitch.
+        note_event = sorted(note_event, key = lambda n : (n[0], n[3]))
+        damper_event = sorted(damper_event, key = lambda d : d[0])
         
         # deduce the number of time step; this allows removal of empty time at the start and end of the matrix
-        timeStart: int = midi.time_to_tick(note[0][0]) # inclusive
-        timeEnd: int = midi.time_to_tick(note[-1][1]) # exclusive
+        # we want all events to line up with each other, so make sure they have the same length
+        timeStart: int = min(
+            note_event[0][0],
+            damper_event[0][0]
+        ) # inclusive
+        # end time is the last note finished
+        timeEnd: int = max(
+            max(note_event, key = lambda n : n[1])[1],
+            damper_event[-1][0]
+        ) # exclusive
         totalTimeStep: int = timeEnd - timeStart
-        # allocate tensor memory
-        this.Velocity: torch.Tensor = torch.zeros((totalTimeStep, MidiTensor.NOTE_COUNT), dtype = torch.uint8)
         
-        # format notes into tensor matrix
-        for (start, end, velocity, pitch) in note:
-            # time discretisation
-            tick_start: int = midi.time_to_tick(start) - timeStart
-            tick_end: int = midi.time_to_tick(end) - timeStart
+        this.Resolution: int = midi.resolution
+        """
+        The resolution of the MIDI file.
+        """
+        this.PianoRoll: torch.Tensor = torch.zeros((totalTimeStep, MidiTensor.NOTE_COUNT + 1), dtype = torch.uint8)
+        """
+        This is a piano roll representation of the data, with all necessary data encoded.
+
+        For the second dimension, the first *note_count* arrays are for velocity, and the last array is for damper pedal.
+        All derived data structures are meant to be references of this piano roll.
+        """
+        
+        for (start, end, velocity, pitch) in note_event:
+            tick_start: int = start - timeStart
+            tick_end: int = end - timeStart
             if tick_end <= tick_start:
                 # invalid note, ignore
                 continue
 
             pitch_idx: int = MidiTensor.pitchToIndex(pitch)
+            this.velocity()[tick_start:tick_end, pitch_idx] = velocity
 
-            this.Velocity[tick_start:tick_end, pitch_idx] = velocity
+        # convert control change to the actual value
+        # which means the value is remained since last time set until it is changed next time
+        prev_time: int = 0
+        prev_value: int = 0
+        for time, value in damper_event:
+            this.damper()[prev_time:time] = prev_value
+            prev_time = time
+            prev_value = value
+        # set the controller for the rest of the time
+        this.damper()[prev_time:] = prev_value
 
     @staticmethod
     def pitchToIndex(pitch: int) -> int:
@@ -88,27 +121,36 @@ class MidiTensor:
         """
         return pitch - MidiTensor.NOTE_START
     
-    def visualise(this, time_range: Tuple[int, int], tensor_type: TensorType, colour_name: str) -> np.ndarray:
+    def velocity(this) -> torch.Tensor:
         """
-        @brief Visualise a given type of tensor memory by displaying the piano roll.
+        @brief Get the reference of velocity in the piano roll.
 
-        @param range The start and end time in tick of the memory to be visualised.
-        @param type Specifies the type of tensor memory to be displayed.
+        @return A matrix of velocity (a.k.a. dynamic) of each MIDI note event.
+        """
+        return this.PianoRoll[:, 0:MidiTensor.NOTE_COUNT]
+    
+    def damper(this) -> torch.Tensor:
+        """
+        @brief Get the reference of damper pedal in the piano roll.
+
+        @return A vector of damper pedal value at every time step.
+        """
+        return this.PianoRoll[:, -1]
+    
+    def visualiseVelocity(this, time_range: Tuple[int, int], colour_name: str) -> np.ndarray:
+        """
+        @brief Visualise MIDI notes by displaying their velocities.
+        The intensity of the colour represents the strength of velocity.
+
+        @param time_range The start and end time in tick of the memory to be visualised.
         @param colour_name The string colour name of the MIDI notes.
-        @return An image of piano roll.
+        @return An image of note velocity visualisation.
         """
-        tick_start, tick_end = time_range
         colour_rgb: Tuple[float, float, float] = colors.to_rgb(colour_name)
-
-        # select memory to be visualised
-        matrix: torch.Tensor
-        match(tensor_type):
-            case MidiTensor.TensorType.VELOCITY:
-                matrix = this.Velocity
 
         # copy the array to avoid sharing storage
         # TODO: may need to detach from device memory first if CUDA is used in the future
-        image: np.ndarray = matrix[tick_start:tick_end].numpy().copy()
+        image: np.ndarray = this.velocity()[slice(*time_range)].numpy().copy()
         # create RGB image, scale the intensity of colour by the value on the image
         # most MIDI data has range [0, 127], need to scale to [0, 255] to get full brightness
         image = np.repeat(image[:,:, np.newaxis], 3, axis = 2) * colour_rgb * (255.0 / 127.0)
