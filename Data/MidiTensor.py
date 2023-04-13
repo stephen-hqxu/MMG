@@ -2,13 +2,15 @@
 Conversion and format between MIDI data and tensor, which is a encoded matrix representation of the symbolic music.
 """
 
+import MidiUtility as util
+
 import pretty_midi
 from pretty_midi import PrettyMIDI
 
 import numpy as np
 from matplotlib import colors
 
-from typing import List, Tuple, Union
+from typing import List, Tuple
 
 class MidiTensor:
     """
@@ -42,54 +44,23 @@ class MidiTensor:
     """
     The number of controller channel to be encoded into the tensor.
     """
-    CONTROLLER_DAMPER: int = 64
-    """
-    The controller number of the damper pedal.
-    """
 
     DIMENSION_PER_TIME_STEP: int = NOTE_COUNT + CONTROLLER_COUNT
     """
     The number of tensor in a single time step. This is equivalent to the dimension of `y`.
     """
 
-    def __init__(this, midi: PrettyMIDI):
+    def __init__(this, midi_note: util.NoteRepresentation):
         """
-        @brief Initialise a MIDI tensor instance from a MIDI file.
+        @brief Initialise a MIDI tensor instance.
         
-        @param midi The MIDI data to be loaded from.
-        It is assumed that the MIDI file only contains a single instrument of piano.
-        It does not matter if tracks are merged into a single channel.
+        @param midi_note The MIDI data in note representation.
         """
-        note_event: List[Tuple[int, int, int, int]] = list() # start, end, velocity, pitch
-        damper_event: List[Tuple[int, int]] = list() # time, value
-        # extract all note information from the MIDI data into flattened arrays
-        for instrument in midi.instruments:
-            note_event.extend([(midi.time_to_tick(note.start), midi.time_to_tick(note.end), note.velocity, note.pitch) for note in instrument.notes])
-            damper_event.extend([(midi.time_to_tick(cc.time), cc.value) for cc in instrument.control_changes if cc.number == MidiTensor.CONTROLLER_DAMPER])
-
-        # sort the note by start time; this is to make sure the behaviour is deterministic when dealing with different MIDI inputs.
-        # if start time is the same (for instance a chord), then sort by pitch.
-        note_event = sorted(note_event, key = lambda n : (n[0], n[3]))
-        damper_event = sorted(damper_event, key = lambda d : d[0])
-        
-        # deduce the number of time step; this allows removal of empty time at the start and end of the matrix
-        # we want all events to line up with each other, so make sure they have the same length
-        timeStart: int = min(
-            note_event[0][0],
-            damper_event[0][0]
-        ) # inclusive
-        # end time is the last note finished
-        timeEnd: int = max(
-            max(note_event, key = lambda n : n[1])[1],
-            damper_event[-1][0]
-        ) # exclusive
-        totalTimeStep: int = timeEnd - timeStart
-        
-        this.Resolution: int = midi.resolution
+        this.Resolution: int = midi_note.Resolution
         """
         The resolution of the MIDI file.
         """
-        this.PianoRoll: np.ndarray = np.zeros((totalTimeStep, MidiTensor.DIMENSION_PER_TIME_STEP), dtype = np.uint8)
+        this.PianoRoll: np.ndarray = np.zeros((midi_note.playbackTime(), MidiTensor.DIMENSION_PER_TIME_STEP), dtype = np.uint8)
         """
         This is a piano roll representation of the data, with all necessary data encoded.
 
@@ -98,27 +69,34 @@ class MidiTensor:
         """
         
         velocityMatrix: np.ndarray = this.velocity()
-        for (start, end, velocity, pitch) in note_event:
-            tick_start: int = start - timeStart
-            tick_end: int = end - timeStart
-            if tick_end <= tick_start:
-                # invalid note, ignore
-                continue
+        for start, end, velocity, pitch in midi_note.NoteEvent:
+            # all invalid notes should have been removed by pretty MIDI
+            assert(start < end)
 
             pitch_idx: int = MidiTensor.pitchToIndex(pitch)
-            velocityMatrix[tick_start:tick_end, pitch_idx] = velocity
+            velocityMatrix[start:end, pitch_idx] = velocity
 
         damperArray: np.ndarray = this.damper()
         # convert control change to the actual value
         # which means the value is remained since last time set until it is changed next time
         prev_time: int = 0
         prev_value: int = 0
-        for time, value in damper_event:
+        for time, value in midi_note.DamperEvent:
             damperArray[prev_time:time] = prev_value
             prev_time = time
             prev_value = value
         # set the controller for the rest of the time
         damperArray[prev_time:] = prev_value
+
+    @classmethod
+    def fromMidi(cls, midi: PrettyMIDI):
+        """
+        @brief Initialise a MIDI tensor instance from a MIDI file.
+
+        @param midi The MIDI file to be loaded from, which will be first converted MIDI note representation.
+        @see MidiUtility.midiToNote()
+        """
+        return cls(util.midiToNote(midi))
 
     @staticmethod
     def pitchToIndex(pitch: int) -> int:
