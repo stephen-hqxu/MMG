@@ -15,7 +15,8 @@ class TimeStepEmbedding(Module):
         super().__init__()
         # split the input feature into different embedding vectors based on their categories
         # combine dimensionality reduction of time and feature embedding together
-        embedding_param = (1, Setting.EMBEDDED_FEATURE_SIZE, (1, Setting.TIME_WINDOW_SIZE))
+        # move the time window by full size each time
+        embedding_param = (1, Setting.EMBEDDED_FEATURE_SIZE, (1, Setting.TIME_WINDOW_SIZE), (1, Setting.TIME_WINDOW_SIZE))
         this.VelocityEmbedding: Conv2d = Conv2d(*embedding_param)
         this.ControlEmbedding: Conv2d = Conv2d(*embedding_param)
 
@@ -28,7 +29,7 @@ class TimeStepEmbedding(Module):
         # add a channel axis
         x = x[:, None, :, :]
         # swap x and y
-        x = torch.swapaxes(x, 2, 3)
+        x = x.swapaxes(2, 3)
 
         vel_emb: Tensor = this.VelocityEmbedding(x[:, :, MidiTensor.sliceVelocity(), :])
         ctrl_emb: Tensor = this.ControlEmbedding(x[:, :, MidiTensor.sliceControl(), :])
@@ -44,7 +45,7 @@ class PositionEmbedding(Module):
 
     def __init__(this):
         super().__init__()
-        this.Zeroing: Dropout = Dropout(p = DropoutSetting.POSITION_DROPOUT)
+        this.Zeroing: Dropout = Dropout(p = DropoutSetting.POSITION_EMBEDDING)
 
         # generate position encoder, based on the position encoder from the original paper
         # TODO: it's possible to train a positional embedder if this implementation doesn't work well
@@ -74,7 +75,7 @@ class FullEmbedding(Module):
 
     def __init__(this):
         super().__init__()
-        this.Zeroing: Dropout = Dropout(p = DropoutSetting.FULL_DROPOUT)
+        this.Zeroing: Dropout = Dropout(p = DropoutSetting.FULL_EMBEDDING)
 
         this.TimeStep: TimeStepEmbedding = TimeStepEmbedding()
         this.Position: PositionEmbedding = PositionEmbedding()

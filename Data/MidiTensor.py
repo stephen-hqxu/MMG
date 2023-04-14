@@ -1,4 +1,4 @@
-from Data.MidiUtility import MidiNoteRepresentation
+from Data.MidiNoteRepresentation import MidiNoteRepresentation
 
 import pretty_midi
 from pretty_midi import PrettyMIDI
@@ -63,7 +63,6 @@ class MidiTensor:
         For the second dimension, the first *note_count* arrays are for velocity, and the last array is for damper pedal.
         All derived data structures are meant to be references of this piano roll.
         """
-        
         velocityMatrix: np.ndarray = this.velocity()
         for start, end, velocity, pitch in midi_note.NoteEvent:
             # all invalid notes should have been removed by pretty MIDI
