@@ -1,8 +1,4 @@
-"""
-Conversion and format between MIDI data and tensor, which is a encoded matrix representation of the symbolic music.
-"""
-
-import MidiUtility as util
+from Data.MidiUtility import MidiNoteRepresentation
 
 import pretty_midi
 from pretty_midi import PrettyMIDI
@@ -50,7 +46,7 @@ class MidiTensor:
     The number of tensor in a single time step. This is equivalent to the dimension of `y`.
     """
 
-    def __init__(this, midi_note: util.NoteRepresentation):
+    def __init__(this, midi_note: MidiNoteRepresentation):
         """
         @brief Initialise a MIDI tensor instance.
         
@@ -96,7 +92,7 @@ class MidiTensor:
         @param midi The MIDI file to be loaded from, which will be first converted MIDI note representation.
         @see MidiUtility.midiToNote()
         """
-        return cls(util.midiToNote(midi))
+        return cls(MidiNoteRepresentation(midi))
 
     @staticmethod
     def pitchToIndex(pitch: int) -> int:

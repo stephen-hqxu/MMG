@@ -2,29 +2,23 @@
 Hyperparameter for the different part of the model.
 """
 
-from dataclasses import dataclass
-
-TIME_WINDOW_SIZE: int = 10240
+TIME_WINDOW_SIZE: int = 1024
 """
-The number of time step per run.
-"""
-TIME_WINDOW_ADVANCEMENT: int = 512
-"""
-The number of time step to move forward for every time window.
-"""
-FEATURE_SIZE: int = 256
-"""
-The number of the element in the feature vector after embedding.
+The number of time step to be grouped together into one token, for dimensionality reduction.
 """
 
-@dataclass
-class EmbeddingSetting:
-    # time step embedding #
-    DICTIONARY_VELOCITY: int = 128
-    DICTIONARY_CONTROL: int = 128
+EMBEDDED_FEATURE_SIZE: int = 256
+"""
+The number of element in the feature vector after embedding an input feature.
+"""
+MAX_SEQUENCE_LENGTH: int = 8192
+"""
+The maximum number of token (grouped time step) the model can take.
+"""
 
-    # position embedding #
+class DropoutSetting:
+    # position embedding
     POSITION_DROPOUT: float = 0.15
 
-    # full embedding #
+    # full embedding
     FULL_DROPOUT: float = 0.18
