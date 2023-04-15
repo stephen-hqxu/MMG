@@ -22,6 +22,11 @@ FEED_FORWARD_LATENT_SIZE: int = 2048
 The hidden layer dimension of the feed forward MLP.
 """
 
+CODER_LAYER_COUNT: int = 6
+"""
+The number of hidden layers for encoder and decoder.
+"""
+
 class DropoutSetting:
     """
     Dropout probability.

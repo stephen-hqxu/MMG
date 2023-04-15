@@ -1,8 +1,9 @@
 from Model import Setting
 from Model.Setting import DropoutSetting
 
-import torch.nn as nn
+import torch
 from torch import Tensor
+import torch.nn as nn
 from torch.nn import Module
 
 from typing import Optional
@@ -29,3 +30,14 @@ class MultiHeadAttention(Module):
         # TODO: return attention output weight if we want to visualise the attention matrix
         attn_output, _ = this.Attention(q, k, v, key_padding_mask = padding_mask, need_weights = False, attn_mask = attn_mask, is_causal = causal)
         return attn_output
+    
+def makeNoPeekMask(len_q: int, len_k: int) -> Tensor:
+    """
+    @brief Create mask that prevents paying attention to the sequence beyond the current input.
+
+    @param len_q, len_k The sequence length of Q and K.
+    @return The boolean mask, with size (len_q, len_k)
+    """
+    mask: Tensor = torch.ones((len_q, len_k), dtype = torch.bool)
+    # create triangular matrix
+    return torch.tril(mask, out = mask)
