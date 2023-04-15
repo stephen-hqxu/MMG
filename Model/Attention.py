@@ -1,30 +1,24 @@
 from Model import Setting
+from Model.Setting import DropoutSetting
 
-import torch
+import torch.nn as nn
 from torch import Tensor
-from torch.nn import Module, Linear, Softmax
+from torch.nn import Module
 
-import math
 from typing import Optional
 
 class MultiHeadAttention(Module):
     """
-    The classic MHA model from the original paper.
+    The classic MHA model from the original paper, with improvement such as flash attention and causal attention masking.
     """
 
     def __init__(this):
         super().__init__()
-        # QKV linear projection
-        projection_param = (Setting.EMBEDDED_FEATURE_SIZE, Setting.EMBEDDED_FEATURE_SIZE)
-        this.QProjection: Linear = Linear(*projection_param)
-        this.KProjection: Linear = Linear(*projection_param)
-        this.VProjection: Linear = Linear(*projection_param)
-        # concatenation of QKV values
-        this.QKVJoint: Linear = Linear(*projection_param)
+        this.Attention: nn.MultiheadAttention = nn.MultiheadAttention(Setting.EMBEDDED_FEATURE_SIZE, Setting.ATTENTION_HEAD_COUNT,
+            dropout = DropoutSetting.MULTIHEAD_ATTENTION, batch_first = True)
 
-        this.Normaliser: Softmax = Softmax(dim = -1)
-
-    def forward(this, q: Tensor, k: Tensor, v: Tensor, mask: Optional[Tensor] = None) -> Tensor:
+    def forward(this, q: Tensor, k: Tensor, v: Tensor,
+            padding_mask: Optional[Tensor] = None, attn_mask: Optional[Tensor] = None, causal: bool = False) -> Tensor:
         """
         Input Q,K,V: (batch, sequence, embedded feature);
             need to flatten time and note axes because attention works on raw sequence,
@@ -32,43 +26,6 @@ class MultiHeadAttention(Module):
             In fact, the shape of the sequence doesn't matter at this point, because we have position embedding.
         Output: same
         """
-        batch, sequence, feature = q.shape
-        # linear projection
-        q = this.QProjection(q)
-        k = this.KProjection(k)
-        v = this.VProjection(v)
-
-        # head splitting
-        def split(x: Tensor) -> Tensor:
-            """
-            Output: (batch, head, sequence, split feature)
-            """
-            # batch, sequence, head, split feature
-            x = x.reshape(batch, sequence, Setting.ATTENTION_HEAD_COUNT, Setting.EMBEDDED_FEATURE_PER_HEAD)
-            # swap so we are paying attention on sequence of features rather than individual head
-            return x.swapaxes(1, 2)
-        q = split(q)
-        k = split(k)
-        v = split(v)
-
-        # scale dot product attention matrix and its score
-        def calcSDPA() -> Tensor:
-            # dot product Q with pow(K, T) to compute similarity
-            k_t: Tensor = k.swapaxes(-1, -2)
-            # scale the dot product by the split feature size
-            score: Tensor = torch.matmul(q, k_t) / math.sqrt(Setting.EMBEDDED_FEATURE_PER_HEAD)
-
-            # masking, give it a very low score to force to not pay any attention
-            if mask is not None:
-                score = score.masked_fill(mask == 0, -1e9)
-
-            # normalisation so sum is [0, 1]
-            score = this.Normaliser(score)
-
-            # scale V by score
-            return torch.matmul(score, v)
-        similarity: Tensor = calcSDPA()
-
-        # swap the axes back, concatenate heads and do a linear projection
-        joint_head: Tensor = similarity.swapaxes(1, 2).reshape(batch, sequence, feature)
-        return this.QKVJoint(joint_head)
+        # TODO: return attention output weight if we want to visualise the attention matrix
+        attn_output, _ = this.Attention(q, k, v, key_padding_mask = padding_mask, need_weights = False, attn_mask = attn_mask, is_causal = causal)
+        return attn_output

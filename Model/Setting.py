@@ -16,9 +16,10 @@ ATTENTION_HEAD_COUNT: int = 4
 """
 The number of head used in multi-head attention model, by splitting the embedded feature.
 """
-EMBEDDED_FEATURE_PER_HEAD: int = EMBEDDED_FEATURE_SIZE // ATTENTION_HEAD_COUNT
+
+FEED_FORWARD_LATENT_SIZE: int = 2048
 """
-Calculated number of feature per attention head.
+The hidden layer dimension of the feed forward MLP.
 """
 
 class DropoutSetting:
@@ -28,4 +29,7 @@ class DropoutSetting:
     POSITION_EMBEDDING: float = 0.15
     FULL_EMBEDDING: float = 0.18
 
+    MULTIHEAD_ATTENTION: float = 0.0
+
     RESIDUAL: float = 0.11
+    FEED_FORWARD: float = 0.09
