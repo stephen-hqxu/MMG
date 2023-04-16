@@ -10,4 +10,4 @@ def makeNoPeekMask(len_q: int, len_k: int) -> Tensor:
     """
     mask: Tensor = torch.ones((len_q, len_k), dtype = torch.bool)
     # create triangular matrix
-    return torch.tril(mask, out = mask)
+    return torch.triu(mask, out = mask, diagonal = 1)

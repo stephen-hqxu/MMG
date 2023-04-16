@@ -1,6 +1,5 @@
 from Data.MidiPianoRoll import MidiPianoRoll
-from Model import Setting
-from Model.Setting import DropoutSetting
+from Model.Setting import EmbeddingSetting, DropoutSetting
 
 import torch
 from torch import Tensor
@@ -16,7 +15,7 @@ class TimeStepEmbedding(Module):
         # split the input feature into different embedding vectors based on their categories
         # combine dimensionality reduction of time and feature embedding together
         # move the time window by full size each time
-        embedding_param = (1, Setting.EMBEDDED_FEATURE_SIZE, (1, Setting.TIME_WINDOW_SIZE), (1, Setting.TIME_WINDOW_SIZE))
+        embedding_param = (1, EmbeddingSetting.EMBEDDED_FEATURE_SIZE, (1, EmbeddingSetting.TIME_WINDOW_SIZE), (1, EmbeddingSetting.TIME_WINDOW_SIZE))
         this.VelocityEmbedding: Conv2d = Conv2d(*embedding_param)
         this.ControlEmbedding: Conv2d = Conv2d(*embedding_param)
 
@@ -49,10 +48,10 @@ class PositionEmbedding(Module):
 
         # generate position encoder, based on the position encoder from the original paper
         # TODO: it's possible to train a positional embedder if this implementation doesn't work well
-        position: Tensor = torch.arange(Setting.MAX_SEQUENCE_LENGTH)
-        normaliser: Tensor = torch.exp(torch.arange(0, Setting.EMBEDDED_FEATURE_SIZE, 2) * (-4 / Setting.EMBEDDED_FEATURE_SIZE)).unsqueeze(1)
+        position: Tensor = torch.arange(EmbeddingSetting.MAX_SEQUENCE_LENGTH)
+        normaliser: Tensor = torch.exp(torch.arange(0, EmbeddingSetting.EMBEDDED_FEATURE_SIZE, 2) * (-4 / EmbeddingSetting.EMBEDDED_FEATURE_SIZE)).unsqueeze(1)
 
-        pe: Tensor = torch.zeros((Setting.EMBEDDED_FEATURE_SIZE, 1, Setting.MAX_SEQUENCE_LENGTH), dtype = torch.float32)
+        pe: Tensor = torch.zeros((EmbeddingSetting.EMBEDDED_FEATURE_SIZE, 1, EmbeddingSetting.MAX_SEQUENCE_LENGTH), dtype = torch.float32)
         pe[0::2, 0, :] = torch.sin(position * normaliser)
         pe[1::2, 0, :] = torch.cos(position * normaliser)
 
@@ -96,7 +95,7 @@ class TimeStepExpansion(Module):
 
     def __init__(this):
         super().__init__()
-        expansion_param = (Setting.EMBEDDED_FEATURE_SIZE, 1, (1, Setting.TIME_WINDOW_SIZE), (1, Setting.TIME_WINDOW_SIZE))
+        expansion_param = (EmbeddingSetting.EMBEDDED_FEATURE_SIZE, 1, (1, EmbeddingSetting.TIME_WINDOW_SIZE), (1, EmbeddingSetting.TIME_WINDOW_SIZE))
         this.VelocityExpansion: ConvTranspose2d = ConvTranspose2d(*expansion_param)
         this.ControlExpansion: ConvTranspose2d = ConvTranspose2d(*expansion_param)
 

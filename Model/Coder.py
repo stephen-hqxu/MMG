@@ -1,5 +1,5 @@
 from Model import Setting
-from Model.Setting import DropoutSetting
+from Model.Setting import EmbeddingSetting, TransformerSetting, DropoutSetting
 
 import Model.Auxiliary as Aux
 
@@ -16,8 +16,8 @@ def createCoderLayer(layer_t: L) -> L:
     @tparam layer_t The type of layer.
     :return The coder layer instance.
     """
-    return layer_t(Setting.EMBEDDED_FEATURE_SIZE,
-        Setting.ATTENTION_HEAD_COUNT, Setting.FEED_FORWARD_LATENT_SIZE, DropoutSetting.CODER, batch_first = True)
+    return layer_t(EmbeddingSetting.EMBEDDED_FEATURE_SIZE,
+        TransformerSetting.ATTENTION_HEAD_COUNT, TransformerSetting.FEED_FORWARD_LATENT_SIZE, DropoutSetting.CODER, batch_first = True)
 
 L = TypeVar("L")
 C = TypeVar("C")
@@ -29,7 +29,7 @@ def createCoder(layer_t: L, coder_t: C) -> C:
     @tparam coder_t The type of coder.
     @return The coder instance.
     """
-    return coder_t(createCoderLayer(layer_t), Setting.CODER_LAYER_COUNT)
+    return coder_t(createCoderLayer(layer_t), TransformerSetting.CODER_LAYER_COUNT)
 
 class Encoder(Module):
     """
@@ -62,7 +62,7 @@ class Decoder(Module):
     def __init__(this):
         super().__init__()
         # not using the built-in decoder because it doesn't allow using causal attention (for some reasons)
-        this.DecoderLayer: List[TransformerDecoderLayer] = [createCoderLayer(TransformerDecoderLayer) for _ in range(Setting.CODER_LAYER_COUNT)]
+        this.DecoderLayer: List[TransformerDecoderLayer] = [createCoderLayer(TransformerDecoderLayer) for _ in range(TransformerSetting.CODER_LAYER_COUNT)]
 
     def forward(this, dec_input: Tensor, enc_output: Tensor) -> Tensor:
         """
