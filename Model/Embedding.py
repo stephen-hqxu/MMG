@@ -4,7 +4,7 @@ from Model.Setting import DropoutSetting
 
 import torch
 from torch import Tensor
-from torch.nn import Module, Dropout, Conv2d
+from torch.nn import Module, Dropout, Conv2d, ConvTranspose2d
 
 class TimeStepEmbedding(Module):
     """
@@ -60,8 +60,8 @@ class PositionEmbedding(Module):
 
     def forward(this, x: Tensor) -> Tensor:
         """
-        Input: (batch, embedded feature, note, time window)
-        Output: same
+        Input: shape of output of time step embedding
+        Output: same shape as this input
         """
         # we only need to embed temporal position
         for bat in range(x.size(0)):
@@ -82,9 +82,36 @@ class FullEmbedding(Module):
 
     def forward(this, x: Tensor) -> Tensor:
         """
-        Input: shape of time step embedding.
-        Output: shape of position embedding.
+        Input: shape of input of time step embedding.
+        Output: shape of output of position embedding.
         """
         time_step_emb: Tensor = this.TimeStep(x)
         pos_emb: Tensor = this.Position(time_step_emb)
         return this.Zeroing(time_step_emb + pos_emb)
+    
+class TimeStepExpansion(Module):
+    """
+    Essentially an inverse of time step embedding to convert from embedded feature and time window back to time steps.
+    """
+
+    def __init__(this):
+        super().__init__()
+        expansion_param = (Setting.EMBEDDED_FEATURE_SIZE, 1, (1, Setting.TIME_WINDOW_SIZE), (1, Setting.TIME_WINDOW_SIZE))
+        this.VelocityExpansion: ConvTranspose2d = ConvTranspose2d(*expansion_param)
+        this.ControlExpansion: ConvTranspose2d = ConvTranspose2d(*expansion_param)
+
+    def forward(this, x: Tensor) -> Tensor:
+        """
+        Input: shape of output of full embedding.
+        Output: shape of input of time step embedding.
+        """
+        # separate different type of note and un-project them from embedded features
+        vel: Tensor = this.VelocityExpansion(x[:, :, MidiPianoRoll.sliceVelocity(), :])
+        ctrl: Tensor = this.ControlExpansion(x[:, :, MidiPianoRoll.sliceControl(), :])
+        
+        # merge notes back to one axis
+        x = torch.cat((vel, ctrl), dim = 2)
+        # remove channel axis of size 1
+        x = x[:, 0, :, :]
+        # swap `x` and `y` back
+        return x.swapaxes(1, 2)
