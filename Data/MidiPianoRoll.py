@@ -6,13 +6,13 @@ from pretty_midi import PrettyMIDI
 import numpy as np
 from matplotlib import colors
 
-from typing import List, Tuple
+from typing import Tuple
 
-class MidiTensor:
+class MidiPianoRoll:
     """
-    @brief MidiTensor is a data representation of a MIDI file.
+    @brief MidiPianoRoll is a data representation of a MIDI file.
 
-    The MIDI tensor is a 2D array (for now, can be changed in the future if we need more information for training)
+    The MIDI piano roll is a 2D array (for now, can be changed in the future if we need more information for training)
     where the x-axis represents the time and y-axis is pitch of note. The value of each matrix entry represents velocity.
     Time is discretised into time step, and the resolution of time step is determined from the quantisation of MIDI file.
     The number of pitch is fixed; for our application, we focus mainly on piano music,
@@ -23,9 +23,6 @@ class MidiTensor:
 
     In addition, other properties from a MIDI music are also included, such as control changes (e.g., pedal data),
     which are encoded as a 1D array, where the length is the number of time step as in the velocity matrix.
-
-    As the name suggests, the MIDI tensor is internally stored as a matrix,
-    and can be converted to PyTorch tensor to perform training.
     """
     NOTE_START: int = pretty_midi.note_name_to_number("A0")
     """
@@ -38,17 +35,17 @@ class MidiTensor:
 
     CONTROLLER_COUNT: int = 1
     """
-    The number of controller channel to be encoded into the tensor.
+    The number of controller channel to be encoded into the piano roll.
     """
 
     DIMENSION_PER_TIME_STEP: int = NOTE_COUNT + CONTROLLER_COUNT
     """
-    The number of tensor in a single time step. This is equivalent to the dimension of `y`.
+    The number of note (velocity and controller data) in a single time step. This is equivalent to the dimension of `y`.
     """
 
     def __init__(this, midi_note: MidiNoteRepresentation):
         """
-        @brief Initialise a MIDI tensor instance.
+        @brief Initialise a MIDI piano roll instance.
         
         @param midi_note The MIDI data in note representation.
         """
@@ -56,7 +53,7 @@ class MidiTensor:
         """
         The resolution of the MIDI file.
         """
-        this.PianoRoll: np.ndarray = np.zeros((midi_note.playbackTime(), MidiTensor.DIMENSION_PER_TIME_STEP), dtype = np.uint8)
+        this.PianoRoll: np.ndarray = np.zeros((midi_note.playbackTime(), MidiPianoRoll.DIMENSION_PER_TIME_STEP), dtype = np.uint8)
         """
         This is a piano roll representation of the data, with all necessary data encoded.
 
@@ -68,7 +65,7 @@ class MidiTensor:
             # all invalid notes should have been removed by pretty MIDI
             assert(start < end)
 
-            pitch_idx: int = MidiTensor.pitchToIndex(pitch)
+            pitch_idx: int = MidiPianoRoll.pitchToIndex(pitch)
             velocityMatrix[start:end, pitch_idx] = velocity
 
         damperArray: np.ndarray = this.damper()
@@ -86,7 +83,7 @@ class MidiTensor:
     @classmethod
     def fromMidi(cls, midi: PrettyMIDI):
         """
-        @brief Initialise a MIDI tensor instance from a MIDI file.
+        @brief Initialise a MIDI piano roll instance from a MIDI file.
 
         @param midi The MIDI file to be loaded from, which will be first converted MIDI note representation.
         @see MidiUtility.midiToNote()
@@ -102,44 +99,44 @@ class MidiTensor:
         No checking is done against whether the pitch is outside the supported pitch.
         @return The index of the pitch.
         """
-        return pitch - MidiTensor.NOTE_START
+        return pitch - MidiPianoRoll.NOTE_START
     
     @staticmethod
     def sliceVelocity() -> slice:
         """
         The velocity submatrix.
         """
-        return slice(0, MidiTensor.NOTE_COUNT)
+        return slice(0, MidiPianoRoll.NOTE_COUNT)
     
     @staticmethod
     def sliceControl() -> slice:
         """
         The control submatrix.
         """
-        return slice(MidiTensor.NOTE_COUNT, MidiTensor.DIMENSION_PER_TIME_STEP)
+        return slice(MidiPianoRoll.NOTE_COUNT, MidiPianoRoll.DIMENSION_PER_TIME_STEP)
     
     @staticmethod
     def sliceDamper() -> slice:
         """
         The damper control within the control submatrix.
         """
-        return slice(MidiTensor.NOTE_COUNT, MidiTensor.NOTE_COUNT + 1)
+        return slice(MidiPianoRoll.NOTE_COUNT, MidiPianoRoll.NOTE_COUNT + 1)
     
     def velocity(this) -> np.ndarray:
         """
-        @brief Get the reference of velocity value from the internal encoded MIDI tensor.
+        @brief Get the reference of velocity value from the internal encoded MIDI piano roll.
 
         @return A matrix of velocity (a.k.a. dynamic) of each MIDI note event.
         """
-        return this.PianoRoll[:, MidiTensor.sliceVelocity()]
+        return this.PianoRoll[:, MidiPianoRoll.sliceVelocity()]
     
     def damper(this) -> np.ndarray:
         """
-        @brief Get the reference of damper pedal value from the internal encoded MIDI tensor.
+        @brief Get the reference of damper pedal value from the internal encoded MIDI piano roll.
 
         @return A vector of damper pedal value at every time step.
         """
-        return this.PianoRoll[:, MidiTensor.sliceDamper()]
+        return this.PianoRoll[:, MidiPianoRoll.sliceDamper()]
     
     def visualiseVelocity(this, time_range: Tuple[int, int], colour_name: str) -> np.ndarray:
         """

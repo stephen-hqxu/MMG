@@ -1,4 +1,4 @@
-from Data.MidiTensor import MidiTensor
+from Data.MidiPianoRoll import MidiPianoRoll
 from Model import Setting
 from Model.Setting import DropoutSetting
 
@@ -22,17 +22,17 @@ class TimeStepEmbedding(Module):
 
     def forward(this, x: Tensor) -> Tensor:
         """
-        Input: (batch, time, note).
-        CNN: (batch, channel, note, time), where `x` and `y` axes are swapped.
-        Output: (batch, embedded feature, note, time token)
+        Input: (batch, time step, note).
+        CNN: (batch, channel, note, time step), where `x` and `y` axes are swapped.
+        Output: (batch, embedded feature, note, time window)
         """
         # add a channel axis
         x = x[:, None, :, :]
         # swap x and y
         x = x.swapaxes(2, 3)
 
-        vel_emb: Tensor = this.VelocityEmbedding(x[:, :, MidiTensor.sliceVelocity(), :])
-        ctrl_emb: Tensor = this.ControlEmbedding(x[:, :, MidiTensor.sliceControl(), :])
+        vel_emb: Tensor = this.VelocityEmbedding(x[:, :, MidiPianoRoll.sliceVelocity(), :])
+        ctrl_emb: Tensor = this.ControlEmbedding(x[:, :, MidiPianoRoll.sliceControl(), :])
         # concatenate the embeddings in the original order of each feature to form a matrix
         # unlike the token-based model that connects all embedded vectors into one big vector
         # in the end, we will have a 2D embedded feature matrix
@@ -40,7 +40,7 @@ class TimeStepEmbedding(Module):
     
 class PositionEmbedding(Module):
     """
-    @brief Note position embedding based on time.
+    @brief Note position embedding based on time window.
     """
 
     def __init__(this):
@@ -60,7 +60,7 @@ class PositionEmbedding(Module):
 
     def forward(this, x: Tensor) -> Tensor:
         """
-        Input: (batch, embedded feature, note, time token)
+        Input: (batch, embedded feature, note, time window)
         Output: same
         """
         # we only need to embed temporal position
