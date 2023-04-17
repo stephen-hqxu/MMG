@@ -84,6 +84,26 @@ class MidiNoteRepresentation:
         joint_note.Resolution = statistics.median([n.Resolution for n in note_collection])
         return joint_note
     
+    @classmethod
+    def fromBinary(cls, src: str):
+        """
+        @brief Deserialise a binary from file to a note representation.
+
+        @param src The source filename.
+        @return The note representation.
+        """
+        with open(src, "rb") as note_file:
+            return pickle.load(note_file)
+    
+    def toBinary(this, dest: str) -> None:
+        """
+        @brief Serialise the current note representation instance to a binary and store to local filesystem.
+
+        @param dest The destination filename.
+        """
+        with open(dest, "wb") as note_file:
+            pickle.dump(this, note_file, protocol = pickle.HIGHEST_PROTOCOL)
+    
     def playbackTime(this) -> int:
         """
         @brief Get the playback time of this MIDI.
@@ -104,23 +124,3 @@ class MidiNoteRepresentation:
         """
         this.NoteEvent[:, 0:2] += offset
         this.DamperEvent[:, 0] += offset
-
-def noteToBinary(note_repr: MidiNoteRepresentation, dest: str) -> None:
-    """
-    @brief Serialise a note representation to binary and store to local filesystem.
-
-    @param note_repr The note representation to be serialised.
-    @param dest The destination filename.
-    """
-    with open(dest, "wb") as note_file:
-        pickle.dump(note_repr, note_file, protocol = pickle.HIGHEST_PROTOCOL)
-
-def binaryToNote(src: str) -> MidiNoteRepresentation:
-    """
-    @brief Deserialise a binary from file to a note representation.
-
-    @param src The source filename.
-    @return The note representation.
-    """
-    with open(src, "rb") as note_file:
-        return pickle.load(note_file)

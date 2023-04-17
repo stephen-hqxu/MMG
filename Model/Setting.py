@@ -1,11 +1,22 @@
+from typing import List
+
 class EmbeddingSetting:
+    NOTE_EMBEDDING_FEATURE_SIZE: int = 128
+    """
+    The feature size after embedding note.
+    """
+    TIME_EMBEDDING_LAYER_KERNEL: List[int] = [32, 32]
+    """
+    The kernel size of each layer to embed time; the product must equal to the time window size.
+    """
+
     TIME_WINDOW_SIZE: int = 1024
     """
     The number of time step to be grouped together into one feature, for dimensionality reduction.
     """
     EMBEDDED_FEATURE_SIZE: int = 256
     """
-    The number of element in the feature vector after embedding an input feature.
+    The number of element in the feature vector after embedding an input feature, including both note and time.
     """
     MAX_SEQUENCE_LENGTH: int = 8192
     """
@@ -27,17 +38,21 @@ class TransformerSetting:
     """
 
 class DiscriminatorSetting:
-    TIME_FEATURE_START_EXPONENT: int = 7
+    TIME_KERNEL_SIZE: List[int] = [8, 8, 8, 16]
     """
-    The size of the first feature layer will be 2^x, and grows exponentially.
+    The kernel size of each layer. Must be at least 2 sizes specified.
+
+    Stride is half of the kernel, padding is half of the stride;
+    except the last layer, which will have full stride and no padding.
+
+    The input will be an integer multiple of the time window size, and output should be one.
+    Consult PyTorch documentation to calculate the size of output of each layer.
     """
-    TIME_KERNEL: int = 8
-    """
-    Stride is half of the kernel, padding is half of the stride.
-    """
-    TIME_LAYER: int = 3
+    TIME_LAYER_FEATURE: List[int] = [256, 384, 512]
     """
     The number of convolutional layer to extract time information.
+    Must have one less member than the number of element.
+    The input and output layers always have feature size of one.
     """
 
     SEQUENCE_HIDDEN: int = 256

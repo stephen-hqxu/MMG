@@ -3,6 +3,7 @@ from Data.MidiNoteRepresentation import MidiNoteRepresentation
 import pretty_midi
 from pretty_midi import PrettyMIDI
 
+import torch
 import numpy as np
 from matplotlib import colors
 
@@ -169,3 +170,12 @@ class MidiPianoRoll:
         """
         start, end = time_range
         return (np.arange(start, end), this.damper()[slice(*time_range)].copy())
+    
+    def viewTensor(this) -> torch.Tensor:
+        """
+        @brief Create a view of the piano roll as a PyTorch tensor.
+        It will have the exact same data as stored in the class instance.
+
+        @return The tensor data.
+        """
+        return torch.from_numpy(this.PianoRoll)

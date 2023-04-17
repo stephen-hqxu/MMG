@@ -1,12 +1,9 @@
 from Data.MidiPianoRoll import MidiPianoRoll
 
-from Model import Setting
-from Model.Setting import EmbeddingSetting, DiscriminatorSetting, DropoutSetting
+from Model.Setting import DiscriminatorSetting, DropoutSetting
 
 from torch import Tensor
-from torch.nn import Module, Flatten, Unflatten, Sequential, Linear, Conv1d, LSTM, LeakyReLU, BatchNorm1d, Sigmoid
-
-import numpy as np
+from torch.nn import Module, Flatten, Unflatten, Sequential, Linear, Conv2d, Conv1d, LSTM, LeakyReLU, BatchNorm1d, Sigmoid
 
 from typing import List
 
@@ -17,53 +14,48 @@ class Discriminator(Module):
 
     def __init__(this):
         super().__init__()
+        # calculate number of feature for each layer, both input and output has feature dimension of one
+        feature_in: List[int] = [1] + DiscriminatorSetting.TIME_LAYER_FEATURE
+        feature_out: List[int] = DiscriminatorSetting.TIME_LAYER_FEATURE + [1]
+        def getKernel(layer: int) -> int:
+            return DiscriminatorSetting.TIME_KERNEL_SIZE[layer]
+        def getStride(layer: int) -> int:
+            return getKernel(layer) // 2
+        def getPadding(layer: int) -> int:
+            return getStride(layer) // 2
+        def activate() -> Module:
+            return LeakyReLU(DiscriminatorSetting.LEAKY_SLOPE, True)
+
         # just a funny name: piano roll to feature sequence
         # this discriminator is a modified version of DCGAN
         roll2seq: List[Module] = list()
+        # the input layer summarises both time and note, this will reduce the matrix to 1D
+        roll2seq.extend([
+            Conv2d(feature_in[0], feature_out[0],
+                (MidiPianoRoll.DIMENSION_PER_TIME_STEP, getKernel(0)),
+                (MidiPianoRoll.DIMENSION_PER_TIME_STEP, getStride(0)),
+                (0, getPadding(0))),
+            Flatten(2, 3), # remove dimension 1 note axis, now (batch, feature, time)
+            activate()
+        ])
 
-        # --------------------------------------------- summarise note ------------------------------------------ #
-        roll2seq.extend([Linear(MidiPianoRoll.DIMENSION_PER_TIME_STEP, 1), LeakyReLU(DiscriminatorSetting.LEAKY_SLOPE, True)])
-        # then we can convert this to a 1D time domain with an additional channel axis for latent vector
-        roll2seq.extend([Flatten(1, 2), Unflatten(1, (1, -1))]) # ... -> (batch, sequence) -> (batch, feature, sequence)
+        layerCount: int = len(DiscriminatorSetting.TIME_KERNEL_SIZE)
+        # for hidden layers
+        for i in range(1, layerCount - 1):
+            roll2seq.extend([
+                Conv1d(feature_in[i], feature_out[i], getKernel(i), getStride(i), getPadding(i)),
+                BatchNorm1d(feature_out[i]),
+                activate()
+            ])
 
-        # ---------------------------------- summarise time steps in a time window ------------------------------ #
-        # remember: input and output both have latent feature of 1
-        exponent: np.ndarray = DiscriminatorSetting.TIME_FEATURE_START_EXPONENT + np.arange(DiscriminatorSetting.TIME_LAYER - 1)
-        feature_count: np.ndarray = np.left_shift(1, exponent)
-        
-        feature_in: np.ndarray = feature_count
-        feature_out: np.ndarray = feature_count
-        # calculate power-of-2; make correction for input and output layer
-        feature_in = np.insert(feature_in, 0, 1)
-        feature_out = np.hstack((feature_out, 1))
-        # filter properties
-        kernel: int = DiscriminatorSetting.TIME_KERNEL
-        stride: int = kernel // 2
-        padding: int = stride // 2
-
-        # use a linear layer at the end to summarise up remaining sequence in a time window
-        remaining_sequence: int = EmbeddingSetting.TIME_WINDOW_SIZE // np.power(stride, DiscriminatorSetting.TIME_LAYER, dtype = np.uint32)
-        need_final_layer: bool = remaining_sequence > 1
-        
-        for idx, (f_in, f_out) in enumerate(zip(feature_in, feature_out)):
-            roll2seq.append(Conv1d(f_in, f_out, kernel, stride, padding))
-
-            if idx == DiscriminatorSetting.TIME_LAYER - 1 and not need_final_layer:
-                # no norm or activation and the end if there is no more layer
-                continue
-            if idx > 0:
-                # no norm at the beginning
-                roll2seq.append(BatchNorm1d(f_out))
-            roll2seq.append(LeakyReLU(DiscriminatorSetting.LEAKY_SLOPE, True))
-        
-        if need_final_layer:
-            roll2seq.append(Conv1d(1, 1, remaining_sequence, remaining_sequence))
-        # output activation
-        roll2seq.append(Sigmoid())
-        
-        # ---------------------------------------- summarise all time window ------------------------------------ #
-        # move feature axis to the end, feature has dimension of one
-        roll2seq.extend([Flatten(1, 2), Unflatten(1, (-1, 1))]) # (batch, sequence)
+        # for output layer, kernels are non-overlapping and with no padding, and summarise all feature to 1
+        lastKernel: int = getKernel(-1)
+        roll2seq.extend([
+            Conv1d(feature_in[-1], feature_out[-1], lastKernel, lastKernel),
+            activate(),
+            Flatten(1, 2), # remove feature, now (batch, time)
+            Unflatten(1, (-1, 1)) # create feature axis for LSTM, now (batch, time, feature)
+        ])
 
         # this helps us to summarise all time windows into one output
         seq2score: LSTM = LSTM(1, DiscriminatorSetting.SEQUENCE_HIDDEN, DiscriminatorSetting.SEQUENCE_LAYER,
@@ -80,6 +72,8 @@ class Discriminator(Module):
         Input: (batch, time step, note)
         Output: (batch); 1.0 is real, 0.0 is fake.
         """
+        x = x.swapaxes(1, 2)[:, None, :, :] # (batch, feature, note, time step)
+
         # for the final LSTM output, we only care about the last score
         summary: Tensor = this.Summarise(x)[0][:, -1, :]
         return this.SummaryProjection(summary)

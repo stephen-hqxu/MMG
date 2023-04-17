@@ -1,4 +1,3 @@
-from Model import Setting
 from Model.Setting import EmbeddingSetting, TransformerSetting, DropoutSetting
 
 import Model.Auxiliary as Aux
