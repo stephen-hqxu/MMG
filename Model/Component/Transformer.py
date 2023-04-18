@@ -1,7 +1,7 @@
 from Data.MidiPianoRoll import MidiPianoRoll
 
-from Model.Embedding import FullEmbedding, TimeStepExpansion
-from Model.Coder import Encoder, Decoder
+from Model.Component.Embedding import FullEmbedding, TimeStepExpansion
+from Model.Component.Coder import Encoder, Decoder
 
 from torch import Tensor
 from torch.nn import Module, Flatten, Unflatten

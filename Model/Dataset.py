@@ -1,4 +1,4 @@
-from Train.Setting import DatasetSetting
+from Model.Setting import DatasetSetting
 from Data.MidiPianoRoll import MidiPianoRoll
 
 from pretty_midi import PrettyMIDI

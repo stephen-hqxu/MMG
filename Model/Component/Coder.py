@@ -1,6 +1,6 @@
 from Model.Setting import EmbeddingSetting, TransformerSetting, DropoutSetting
 
-import Model.Auxiliary as Aux
+import Model.Component.Auxiliary as Aux
 
 from torch import Tensor
 from torch.nn import Module, TransformerEncoderLayer, TransformerEncoder, TransformerDecoderLayer

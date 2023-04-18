@@ -1,4 +1,10 @@
+import os
 from typing import List
+
+PROJECT_ROOT: str = os.getcwd()
+"""
+We assume the application always starts at the project root.
+"""
 
 class EmbeddingSetting:
     NOTE_EMBEDDING_FEATURE_SIZE: int = 128
@@ -73,3 +79,19 @@ class DropoutSetting:
     CODER: float = 0.12
 
     DISCRIMINATOR_SEQUENCE: float = 0.03
+
+class DatasetSetting:
+    """
+    Please change the path variables so that it matches your environment.
+    As a convention to avoid confusion, please alway use absolute path.
+    """
+    ASAP_PATH: str = "/home/stephen/shared-drives/V\:/year4/cs407/dataset/asap-dataset-2021-09-16"
+
+    CONCATENATED_MIDI_OUTPUT_PATH: str = PROJECT_ROOT + "/.cache"
+    """
+    Intermediate MIDI file cache output directory.
+    """
+    MODEL_OUTPUT_PATH: str = PROJECT_ROOT + "/output"
+    """
+    Hold binary of the trained model.
+    """
