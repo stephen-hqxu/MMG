@@ -3,11 +3,39 @@ from Model.Setting import EmbeddingSetting, DropoutSetting
 
 import torch
 from torch import Tensor
-from torch.nn import Module, Dropout, Embedding, Sequential, Conv2d, ConvTranspose2d, Hardswish
+from torch.nn import Module, Dropout, Embedding, Sequential, Linear, Conv2d, ConvTranspose2d, Hardswish, Tanh
 
 import numpy as np
 
-from typing import List, Tuple
+from typing import List, Tuple, TypeVar
+
+L = TypeVar("L")
+"""
+@tparam L The layer type. Must be a convolutional layer type.
+"""
+def createTimeStepSequence(layer_t: L, encode: bool) -> Sequential:
+    """
+    @brief Create a sequence of layers to encode or decode time step.
+
+    @param layer_t L
+    @param encode True to calculate feature for encode, false for decode.
+    @return A sequence of created time step layer sequence model.
+    """
+    remaining_feature: int = EmbeddingSetting.EMBEDDED_FEATURE_SIZE - EmbeddingSetting.NOTE_EMBEDDING_FEATURE_SIZE
+    feature_increment: int = remaining_feature // len(EmbeddingSetting.TIME_EMBEDDING_LAYER_KERNEL)
+    layer_feature: np.ndarray = np.arange(EmbeddingSetting.NOTE_EMBEDDING_FEATURE_SIZE, EmbeddingSetting.EMBEDDED_FEATURE_SIZE + 1, feature_increment)
+    
+    # reverse the order if we are doing decoding
+    if not encode:
+        layer_feature = np.flip(layer_feature)
+
+    sequence: Sequential = Sequential()
+    # basically do a folding on the layer feature, so the input size of the next layer is the output size of previous
+    for i in range(layer_feature.size - 1):
+        kernel: Tuple[int, int] = (1, EmbeddingSetting.TIME_EMBEDDING_LAYER_KERNEL[i])
+        # the recent paper shows Swish function outperforms ReLU; H-Swish is cheaper to compute
+        sequence.extend([layer_t(layer_feature[i], layer_feature[i + 1], kernel, kernel), Hardswish(True)])
+    return sequence
 
 class TimeStepEmbedding(Module):
     """
@@ -23,19 +51,7 @@ class TimeStepEmbedding(Module):
         this.ControlEmbedding: Embedding = Embedding(**embedding_param)
 
         # dimensionality reduction of time
-        remaining_feature: int = EmbeddingSetting.EMBEDDED_FEATURE_SIZE - EmbeddingSetting.NOTE_EMBEDDING_FEATURE_SIZE
-        feature_increment: int = remaining_feature // len(EmbeddingSetting.TIME_EMBEDDING_LAYER_KERNEL)
-        # the number of feature in each layer
-        layer_feature: np.ndarray = np.arange(EmbeddingSetting.NOTE_EMBEDDING_FEATURE_SIZE, EmbeddingSetting.EMBEDDED_FEATURE_SIZE + 1, feature_increment)
-        
-        timeReduction: List[Module] = list()
-        # basically do a folding on the layer feature, so the input size of the next layer is the output size of previous
-        for i in range(layer_feature.size - 1):
-            kernel: Tuple[int, int] = (1, EmbeddingSetting.TIME_EMBEDDING_LAYER_KERNEL[i])
-            # the recent paper shows Swish function outperforms ReLU; H-Swish is cheaper to compute
-            timeReduction.extend([Conv2d(layer_feature[i], layer_feature[i + 1], kernel, kernel), Hardswish(True)])
-
-        this.TimeReduction: Sequential = Sequential(*timeReduction)
+        this.TimeReduction: Sequential = createTimeStepSequence(Conv2d, True)
 
     def forward(this, x: Tensor) -> Tensor:
         """
@@ -50,7 +66,7 @@ class TimeStepEmbedding(Module):
         x = torch.cat((vel_emb, ctrl_emb), dim = 2) # (batch, time step, note, feature)
 
         # now perform dimensionality reduction on time domain
-        x = x.permute(0, 3, 2, 1) # (batch, feature, note, time step)
+        x = x.swapaxes(1, 3) # (batch, feature, note, time step)
         return this.TimeReduction(x)
     
 class PositionEmbedding(Module):
@@ -107,20 +123,33 @@ class FullEmbedding(Module):
 class TimeStepExpansion(Module):
     """
     Essentially an inverse of time step embedding to convert from embedded feature and time window back to time steps.
-    The output from the transformer is linear, so a single layer suffices.
     """
 
     def __init__(this):
         super().__init__()
-        this.Expansion: ConvTranspose2d = ConvTranspose2d(EmbeddingSetting.EMBEDDED_FEATURE_SIZE, 1,
-            (1, EmbeddingSetting.TIME_WINDOW_SIZE), (1, EmbeddingSetting.TIME_WINDOW_SIZE))
+        # basically do everything as in time step embedding, but in reversed order
+        this.TimeExpansion: Sequential = createTimeStepSequence(ConvTranspose2d, False)
+
+        # The output from the transformer is linear, so a single layer for each suffices.
+        expansion_param = { "in_features" : EmbeddingSetting.NOTE_EMBEDDING_FEATURE_SIZE, "out_features": 1 }
+        this.VelocityProjection: Linear = Linear(**expansion_param)
+        this.ControlProjection: Linear = Linear(**expansion_param)
+
+        this.Activate: Tanh = Tanh()
 
     def forward(this, x: Tensor) -> Tensor:
         """
         Input: shape of output of full embedding.
-        Output: shape of input of time step embedding.
+        Output: shape of input of time step embedding. The output is activated to signed normalised range.
         """
-        # remove channel axis of size 1 after expansion
-        x = this.Expansion(x)[:, 0, :, :]
-        # swap `x` and `y` back
-        return x.swapaxes(1, 2)
+        # undo dimensionality reduction of time
+        x = this.TimeExpansion(x)
+        x = x.swapaxes(1, 3) # (batch, time step, note, feature)
+
+        # undo note feature embedding
+        vel: Tensor = this.VelocityProjection(x[:, :, MidiPianoRoll.sliceVelocity(), :])
+        ctrl: Tensor = this.ControlProjection(x[:, :, MidiPianoRoll.sliceControl(), :])
+        # remove feature dimension
+        x = torch.cat((vel, ctrl), dim = 2)[:, :, :, 0] # (batch, time step, note)
+
+        return this.Activate(x)

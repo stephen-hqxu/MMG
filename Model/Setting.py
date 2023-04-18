@@ -85,9 +85,9 @@ class DatasetSetting:
     Please change the path variables so that it matches your environment.
     As a convention to avoid confusion, please alway use absolute path.
     """
-    ASAP_PATH: str = "/home/stephen/shared-drives/V\:/year4/cs407/dataset/asap-dataset-2021-09-16"
+    ASAP_PATH: str = "/home/stephen/shared-drives/V\\:/year4/cs407/dataset/asap-dataset-2021-09-16"
 
-    CONCATENATED_MIDI_OUTPUT_PATH: str = PROJECT_ROOT + "/.cache"
+    MIDI_CACHE_PATH: str = PROJECT_ROOT + "/.cache"
     """
     Intermediate MIDI file cache output directory.
     """

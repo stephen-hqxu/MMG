@@ -52,22 +52,27 @@ class Transformer(Module):
         x = this.FeatureUnflatten(x)
         return x.swapaxes(1, 3)
     
+    def encode(this, source: Tensor) -> Tensor:
+        """
+        Input: (batch, time step, note) in integer.
+        Output: (batch, sequence, feature)
+        """
+        source = this.toFeatureSequence(this.EncoderEmbedding(source))
+        return this.EncoderBlock(source)
+    
+    def decode(this, target: Tensor, enc_output: Tensor) -> Tensor:
+        """
+        Input: same shape as encoder input.
+        Output: same as shape and size as target input.
+        """
+        target = this.toFeatureSequence(this.DecoderEmbedding(target))
+        target = this.DecoderBlock(target, enc_output)
+        return this.Output(this.toFeatureMatrix(target))
+    
     def forward(this, source: Tensor, target: Tensor) -> Tensor:
         """
-        Input: (batch, time step, note).
-        The number of time step of `source` and `target` can be different.
-        Output: same shape as target.
+        Regarding shape, see encode and decode function.
+        This function is used for training only.
         """
-        source = this.EncoderEmbedding(source)
-        target = this.DecoderEmbedding(target)
-
-        # reshape for coder block
-        source = this.toFeatureSequence(source)
-        target = this.toFeatureSequence(target)
-
-        output: Tensor = this.DecoderBlock(target, this.EncoderBlock(source))
-
-        # reshape for output layer
-        output = this.toFeatureMatrix(output)
-
-        return this.Output(output)
+        enc: Tensor = this.encode(source)
+        return this.decode(target, enc)

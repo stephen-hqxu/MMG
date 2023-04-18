@@ -7,16 +7,15 @@ import pickle
 
 from typing import List, Tuple
 
-CONTROLLER_DAMPER: int = 64
-"""
-The controller number of the damper pedal.
-"""
-
 class MidiNoteRepresentation:
     """
     @brief The note representation of a MIDI file.
     All time unit are represented as integers, in tick.
     Note data are sorted by their start time.
+    """
+    CONTROLLER_DAMPER: int = 64
+    """
+    The controller number of the damper pedal.
     """
 
     def __init__(this, midi: PrettyMIDI):
@@ -32,7 +31,8 @@ class MidiNoteRepresentation:
         # extract all note information from the MIDI data into flattened arrays
         for instrument in midi.instruments:
             note_event.extend([(midi.time_to_tick(n.start), midi.time_to_tick(n.end), n.velocity, n.pitch) for n in instrument.notes])
-            damper_event.extend([(midi.time_to_tick(cc.time), cc.value) for cc in instrument.control_changes if cc.number == CONTROLLER_DAMPER])
+            damper_event.extend([(midi.time_to_tick(cc.time), cc.value) for cc in instrument.control_changes \
+                if cc.number == MidiNoteRepresentation.CONTROLLER_DAMPER])
         
         this.Resolution: int = midi.resolution
         """
