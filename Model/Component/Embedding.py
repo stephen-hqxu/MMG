@@ -46,7 +46,8 @@ class TimeStepEmbedding(Module):
         super().__init__()
         # split the input feature into different embedding vectors based on their categories
         # frequency of appearance of each note is not the same, it is definite some notes are used less than others, so scale gradient
-        embedding_param = { "num_embeddings" : 128, "embedding_dim" : EmbeddingSetting.NOTE_EMBEDDING_FEATURE_SIZE, "scale_grad_by_freq" : True }
+        embedding_param = { "num_embeddings" : EmbeddingSetting.NOTE_ORIGINAL_FEATURE_SIZE,
+            "embedding_dim" : EmbeddingSetting.NOTE_EMBEDDING_FEATURE_SIZE, "scale_grad_by_freq" : True }
         this.VelocityEmbedding: Embedding = Embedding(**embedding_param)
         this.ControlEmbedding: Embedding = Embedding(**embedding_param)
 

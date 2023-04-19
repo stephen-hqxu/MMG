@@ -1,12 +1,37 @@
 import os
-from typing import List
+from typing import List, Tuple
 
 PROJECT_ROOT: str = os.getcwd()
 """
 We assume the application always starts at the project root.
 """
 
+TIME_WINDOW_ALLOCATION_INCREMENT: int = 100
+"""
+Specifies, when need to preallocate memory for time steps, grow the array by multiple of time window size.
+Set to a lager number reduces the number of allocation, but may increase memory consumption.
+"""
+
+class SpecialTokenSetting:
+    SOS: int = 128
+    """
+    Start Of Sequence
+    """
+    EOS: int = 129
+    """
+    End Of Sequence
+    """
+    PAD: int = 130
+    """
+    Padding
+    """
+
 class EmbeddingSetting:
+    NOTE_ORIGINAL_FEATURE_SIZE: int = 131
+    """
+    The feature size before embedding note.
+    128 velocity/control value + all special tokens.
+    """
     NOTE_EMBEDDING_FEATURE_SIZE: int = 128
     """
     The feature size after embedding note.
@@ -87,11 +112,43 @@ class DatasetSetting:
     """
     ASAP_PATH: str = "/home/stephen/shared-drives/V\\:/year4/cs407/dataset/asap-dataset-2021-09-16"
 
-    MIDI_CACHE_PATH: str = PROJECT_ROOT + "/.cache"
+    MIDI_CACHE_PATH: str = PROJECT_ROOT + "/cache"
     """
     Intermediate MIDI file cache output directory.
     """
     MODEL_OUTPUT_PATH: str = PROJECT_ROOT + "/output"
     """
     Hold binary of the trained model.
+    """
+    TRAIN_STATS_LOG_PATH: str = PROJECT_ROOT + "/train-stats"
+    """
+    Store training stats such as training accuracy and loss.
+    """
+
+class TrainingSetting:
+    SEED: int = 6666
+    """
+    Used for shuffling the data.
+    """
+
+    EPOCH: int = 500
+    """
+    The number of epoch.
+    """
+    BATCH_SIZE: int = 4
+    """
+    The size of batch.
+    """
+    DATA_SPLIT: List[float] = [0.7, 0.2, 0.1]
+    """
+    Proportion of [train, validation, test]; must sum up to 1.0.
+    """
+
+    LEARNING_RATE: float = 2e-4
+    """
+    The learning rate for the optimiser.
+    """
+    BETA: Tuple[float, float] = (0.5, 0.98)
+    """
+    The beta parameter for the optimiser.
     """
