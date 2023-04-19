@@ -1,10 +1,13 @@
 from Model.Component.Transformer import Transformer as Gen
 from Model.Component.Discriminator import Discriminator as Disc
 
-from Model.Setting import DatasetSetting, TrainingSetting
+from Model.Setting import EmbeddingSetting, DatasetSetting, TrainingSetting
 
 import torch
+from torch import Tensor
+from torch.nn import BCELoss
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard.writer import SummaryWriter
 from torch.optim import Adam
 
 import datetime
@@ -16,6 +19,8 @@ class Trainer():
 
     @see https://github.com/soumith/ganhacks regarding choice of model architecture and hyperparameter.
     """
+    FAKE_LABEL: float = 0.0
+    REAL_LABEL: float = 1.0
 
     class OperationMode(IntEnum):
         """
@@ -24,10 +29,14 @@ class Trainer():
         EVALUATION = 0x00
         TRAIN = 0xFF
 
-    def __init__(this):
+    def __init__(this, log_dir: str):
         """
         @brief Create a trainer with untrained model with random initial state.
+
+        @param log_dir The directory name to store training stats for the current session.
         """
+        this.LogPath: str = DatasetSetting.TRAIN_STATS_LOG_PATH + '/' + log_dir
+
         this.Generator: Gen = Gen()
         this.Discriminator: Disc = Disc()
 
@@ -38,7 +47,11 @@ class Trainer():
 
         # parameters to be updated during training
         this.Epoch: int = 0
-        this.Loss: float = 0.0
+        this.GlobalStep: int = 0
+        """
+        The number of training step run in total, one training iteration is one global step; only updated during training.
+        """
+        this.Criterion: BCELoss = BCELoss()
 
     @classmethod
     def loadFrom(cls, model_name: str):
@@ -49,7 +62,7 @@ class Trainer():
         """
         # load saved data
         model = torch.load(DatasetSetting.MODEL_OUTPUT_PATH + '/' + model_name)
-        trainer: cls = cls()
+        trainer: cls = cls(model["log_path"])
 
         # load each member data
         trainer.Generator.load_state_dict(model["generator"])
@@ -59,9 +72,19 @@ class Trainer():
         trainer.DiscriminatorOptimiser.load_state_dict(model["discriminator_optimiser"])
 
         trainer.Epoch = model["epoch"]
-        trainer.Loss = model["loss"]
-
+        trainer.GlobalStep = model["global_step"]
+        trainer.Criterion.load_state_dict(model["criterion"])
         return trainer
+    
+    @staticmethod
+    def normaliseNote(note: Tensor) -> Tensor:
+        """
+        @brief Normalise integer note to signed normalised range.
+
+        @param note Note in range [0, NoteFeatureSize]
+        @return Note in range [-1.0, 1.0]
+        """
+        return note.float() / EmbeddingSetting.NOTE_ORIGINAL_FEATURE_SIZE * 2.0 - 1.0
     
     def checkpoint(this, model_name: str) -> None:
         """
@@ -73,6 +96,8 @@ class Trainer():
         time: str = str(datetime.datetime.today().strftime("%x_%X"))
 
         torch.save({
+            "log_path" : this.LogPath,
+
             "generator" : this.Generator.state_dict(),
             "discriminator" : this.Discriminator.state_dict(),
 
@@ -80,7 +105,8 @@ class Trainer():
             "discriminator_optimiser" : this.DiscriminatorOptimiser.state_dict(),
 
             "epoch" : this.Epoch,
-            "loss" : this.Loss
+            "global_step" : this.GlobalStep,
+            "criterion" : this.Criterion.state_dict()
             # filename extension follows PyTorch's convention
         }, DatasetSetting.MODEL_OUTPUT_PATH + '/' + model_name + '-' + time + ".tar")
 
@@ -97,3 +123,84 @@ class Trainer():
             case Trainer.OperationMode.TRAIN:
                 this.Generator.train()
                 this.Discriminator.train()
+
+    def advanceEpoch(this) -> None:
+        """
+        @brief Advance epoch counter by one.
+        """
+        this.Epoch += 1
+
+    def train(this, dataLoader: DataLoader) -> None:
+        """
+        @brief Train the model for one epoch using a provided data loader.
+        Note that it's application's responsibility to set the trainer to the correct mode.
+
+        @param dataLoader The dataloader for which the model will be trained on.
+        @see setMode()
+        """
+        with SummaryWriter(this.LogPath) as trainStats:
+            for i, data in enumerate(dataLoader):
+                fake, real, mask = data # source is robotic MIDI (fake), target is performance MIDI (real)
+
+                batchSize: int = real.size(0)
+                label: Tensor = torch.fill((batchSize), Trainer.REAL_LABEL, dtype = torch.float32)
+                # normalised data for discriminator
+                real_norm: Tensor = Trainer.normaliseNote(real)
+
+                # ---------------- train discriminator --------------- #
+                # train with all real batch
+                this.Discriminator.zero_grad()
+                score: Tensor = this.Discriminator(real_norm)
+                # calculate loss on all real batch
+                err_real: Tensor = this.Criterion(score, label)
+                # calculate gradient of discriminator in backward pass
+                err_real.backward()
+                Dx: float = score.mean().item()
+
+                # train with all fake batch, basically just run the generator as usual
+                """
+                FIXME:
+                I am not exactly sure if we should do greedy decode for the transformer?
+                It would definitely be more accurate to do so, but it can be very expensive.
+
+                Additionally we might risk running out of memory,
+                since the transformer has zero knowledge about those special tokens at the beginning;
+                such that it may never emit an EOS token until reaching the max length, which is HUGE!
+                So I assume we should give the transformer the real data along with the fake one to constrain the output size?
+                """
+                label.fill(Trainer.FAKE_LABEL)
+                generated: Tensor = this.Generator(fake, real, mask)
+                # we consider everything from the generator is fake
+                score: Tensor = this.Discriminator(generated.detach()) # prevent updating parameters on generator
+                err_fake: Tensor = this.Criterion(score, label)
+                # calculate gradient of this batch, sum with previous gradients
+                err_fake.backward()
+                DGz1: float = score.mean().item()
+                # compute error of discriminator as a sum over real and fake batch
+                err_discriminator: Tensor = err_real + err_fake
+                this.DiscriminatorOptimiser.step()
+
+                # ----------------- train generator ------------------- #
+                this.Generator.zero_grad()
+                # invert the label for the generator cost
+                label.fill(Trainer.REAL_LABEL)
+                # run another forward pass on discriminator because we just updated it
+                score: Tensor = this.Discriminator(generated)
+                # calculate loss of generator
+                err_generator: Tensor = this.Criterion(score, label)
+                err_generator.backward()
+                DGz2: float = score.mean().item()
+                this.GeneratorOptimiser.step()
+
+                # --------------------- logging ----------------------- #
+                if i % TrainingSetting.LOG_FREQUENCY != 0:
+                    continue
+                trainStats.add_scalars("train", {
+                    "Loss(D)" : err_discriminator.mean().item(),
+                    "Loss(G)" : err_generator.mean().item(),
+                    "D(x)" : Dx,
+                    "D(G(z1))" : DGz1,
+                    "D(G(z2))" : DGz2
+                }, this.GlobalStep)
+
+                this.GlobalStep += 1

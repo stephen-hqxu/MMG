@@ -76,4 +76,4 @@ class Discriminator(Module):
 
         # for the final LSTM output, we only care about the last score
         summary: Tensor = this.Summarise(x)[0][:, -1, :]
-        return this.SummaryProjection(summary)
+        return this.SummaryProjection(summary)[:, 0] # remove axis of size one

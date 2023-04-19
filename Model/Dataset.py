@@ -1,13 +1,13 @@
 from Model.Component.Coder import CoderMask
 
-from Model.Setting import SpecialTokenSetting, EmbeddingSetting, DatasetSetting
+from Model.Setting import SpecialTokenSetting, EmbeddingSetting, DatasetSetting, TrainingSetting
 from Data.MidiPianoRoll import MidiPianoRoll
 
 from pretty_midi import PrettyMIDI
 
 import torch
 from torch import Tensor
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader, random_split
 from torch.nn.utils.rnn import pad_sequence
 
 import numpy as np
@@ -175,3 +175,20 @@ class BatchCollation:
             TargetAttention = BatchCollation.makeNoPeekMask(targetSequence)
         )
         return (*data, mask)
+    
+def loadData(dataset: Dataset) -> Tuple[DataLoader, DataLoader, DataLoader]:
+    """
+    @brief Load a dataset, and splits the dataset into training, validation and testing partition.
+
+    @param dataset The dataset to be loaded.
+    @return Data loaders for different purposes.
+    """
+    # split the dataset randomly
+    generator: torch.Generator = torch.Generator().manual_seed(DatasetSetting.DATA_SHUFFLE_SEED)
+    train, validation, test = random_split(dataset, DatasetSetting.DATA_SPLIT, generator)
+
+    # indices are already shuffled, no need to shuffle again
+    train_loader: DataLoader = DataLoader(train, TrainingSetting.BATCH_SIZE, collate_fn = BatchCollation())
+    validation_loader: DataLoader = DataLoader(validation, TrainingSetting.BATCH_SIZE, collate_fn = BatchCollation())
+    test_loader: DataLoader = DataLoader(test, TrainingSetting.BATCH_SIZE, collate_fn = BatchCollation())
+    return (train_loader, validation_loader, test_loader)

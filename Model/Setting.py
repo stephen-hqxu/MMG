@@ -110,6 +110,15 @@ class DatasetSetting:
     Please change the path variables so that it matches your environment.
     As a convention to avoid confusion, please alway use absolute path.
     """
+    DATA_SHUFFLE_SEED: int = 6666
+    """
+    Seed used for randomly permuting the dataset.
+    """
+    DATA_SPLIT: List[float] = [0.7, 0.2, 0.1]
+    """
+    Proportion of [train, validation, test]; must sum up to 1.0.
+    """
+
     ASAP_PATH: str = "/home/stephen/shared-drives/V\\:/year4/cs407/dataset/asap-dataset-2021-09-16"
 
     MIDI_CACHE_PATH: str = PROJECT_ROOT + "/cache"
@@ -126,11 +135,6 @@ class DatasetSetting:
     """
 
 class TrainingSetting:
-    SEED: int = 6666
-    """
-    Used for shuffling the data.
-    """
-
     EPOCH: int = 500
     """
     The number of epoch.
@@ -138,10 +142,6 @@ class TrainingSetting:
     BATCH_SIZE: int = 4
     """
     The size of batch.
-    """
-    DATA_SPLIT: List[float] = [0.7, 0.2, 0.1]
-    """
-    Proportion of [train, validation, test]; must sum up to 1.0.
     """
 
     LEARNING_RATE: float = 2e-4
@@ -151,4 +151,9 @@ class TrainingSetting:
     BETA: Tuple[float, float] = (0.5, 0.98)
     """
     The beta parameter for the optimiser.
+    """
+
+    LOG_FREQUENCY: int = 10
+    """
+    Specify logging frequency in term of number of iteration elapsed.
     """
