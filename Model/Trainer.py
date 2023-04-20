@@ -29,13 +29,14 @@ class Trainer():
         EVALUATION = 0x00
         TRAIN = 0xFF
 
-    def __init__(this, log_dir: str):
+    def __init__(this, log_name: str):
         """
         @brief Create a trainer with untrained model with random initial state.
 
-        @param log_dir The directory name to store training stats for the current session.
+        @param log_name The directory name to store training stats for the current session.
         """
-        this.LogPath: str = DatasetSetting.TRAIN_STATS_LOG_PATH + '/' + log_dir
+        this.LogName: str = log_name
+        this.Summary: SummaryWriter = SummaryWriter(DatasetSetting.TRAIN_STATS_LOG_PATH + '/' + this.LogName)
 
         this.Generator: Gen = Gen()
         this.Discriminator: Disc = Disc()
@@ -53,6 +54,9 @@ class Trainer():
         """
         this.Criterion: BCELoss = BCELoss()
 
+    def __del__(this):
+        this.Summary.close()
+
     @classmethod
     def loadFrom(cls, model_name: str):
         """
@@ -62,7 +66,7 @@ class Trainer():
         """
         # load saved data
         model = torch.load(DatasetSetting.MODEL_OUTPUT_PATH + '/' + model_name)
-        trainer: cls = cls(model["log_path"])
+        trainer: cls = cls(model["log_name"])
 
         # load each member data
         trainer.Generator.load_state_dict(model["generator"])
@@ -95,8 +99,9 @@ class Trainer():
         """
         time: str = str(datetime.datetime.today().strftime("%x_%X"))
 
+        this.Summary.flush()
         torch.save({
-            "log_path" : this.LogPath,
+            "log_name" : this.LogName,
 
             "generator" : this.Generator.state_dict(),
             "discriminator" : this.Discriminator.state_dict(),
@@ -138,69 +143,95 @@ class Trainer():
         @param dataLoader The dataloader for which the model will be trained on.
         @see setMode()
         """
-        with SummaryWriter(this.LogPath) as trainStats:
-            for i, data in enumerate(dataLoader):
-                fake, real, mask = data # source is robotic MIDI (fake), target is performance MIDI (real)
+        label: Tensor = torch.zeros((batchSize), dtype = torch.float32)
+        for i, data in enumerate(dataLoader):
+            fake, real, mask = data # source is robotic MIDI (fake), target is performance MIDI (real)
+            batchSize: int = fake.size(0)
+            # normalised data for discriminator
+            real_norm: Tensor = Trainer.normaliseNote(real)
 
-                batchSize: int = real.size(0)
-                label: Tensor = torch.fill((batchSize), Trainer.REAL_LABEL, dtype = torch.float32)
-                # normalised data for discriminator
-                real_norm: Tensor = Trainer.normaliseNote(real)
+            # ---------------- train discriminator --------------- #
+            this.Discriminator.zero_grad()
+            # train with all real batch
+            label.fill_(Trainer.REAL_LABEL)
+            score: Tensor = this.Discriminator(real_norm)
+            # calculate loss on all real batch
+            err_real: Tensor = this.Criterion(score, label)
+            # calculate gradient of discriminator in backward pass
+            err_real.backward()
+            Dx: float = score.mean().item()
 
-                # ---------------- train discriminator --------------- #
-                # train with all real batch
-                this.Discriminator.zero_grad()
-                score: Tensor = this.Discriminator(real_norm)
-                # calculate loss on all real batch
-                err_real: Tensor = this.Criterion(score, label)
-                # calculate gradient of discriminator in backward pass
-                err_real.backward()
-                Dx: float = score.mean().item()
+            # train with all fake batch, basically just run the generator as usual
+            label.fill_(Trainer.FAKE_LABEL)
+            generated: Tensor = this.Generator(fake, real, mask)
+            # we consider everything from the generator is fake
+            score: Tensor = this.Discriminator(generated.detach()) # prevent updating parameters on generator
+            err_fake: Tensor = this.Criterion(score, label)
+            # calculate gradient of this batch, sum with previous gradients
+            err_fake.backward()
+            DGz1: float = score.mean().item()
+            # compute error of discriminator as a sum over real and fake batch
+            err_discriminator: Tensor = err_real + err_fake
+            this.DiscriminatorOptimiser.step()
 
-                # train with all fake batch, basically just run the generator as usual
-                """
-                FIXME:
-                I am not exactly sure if we should do greedy decode for the transformer?
-                It would definitely be more accurate to do so, but it can be very expensive.
+            # ----------------- train generator ------------------- #
+            this.Generator.zero_grad()
+            # invert the label for the generator cost
+            label.fill_(Trainer.REAL_LABEL)
+            # run another forward pass on discriminator because we just updated it
+            score: Tensor = this.Discriminator(generated)
+            # calculate loss of generator
+            err_generator: Tensor = this.Criterion(score, label)
+            err_generator.backward()
+            DGz2: float = score.mean().item()
+            this.GeneratorOptimiser.step()
 
-                Additionally we might risk running out of memory,
-                since the transformer has zero knowledge about those special tokens at the beginning;
-                such that it may never emit an EOS token until reaching the max length, which is HUGE!
-                So I assume we should give the transformer the real data along with the fake one to constrain the output size?
-                """
-                label.fill(Trainer.FAKE_LABEL)
-                generated: Tensor = this.Generator(fake, real, mask)
-                # we consider everything from the generator is fake
-                score: Tensor = this.Discriminator(generated.detach()) # prevent updating parameters on generator
-                err_fake: Tensor = this.Criterion(score, label)
-                # calculate gradient of this batch, sum with previous gradients
-                err_fake.backward()
-                DGz1: float = score.mean().item()
-                # compute error of discriminator as a sum over real and fake batch
-                err_discriminator: Tensor = err_real + err_fake
-                this.DiscriminatorOptimiser.step()
+            # --------------------- logging ----------------------- #
+            if i % TrainingSetting.LOG_FREQUENCY != 0:
+                continue
+            this.Summary.add_scalars("train", {
+                "Loss(D)" : err_discriminator.mean().item(),
+                "Loss(G)" : err_generator.mean().item(),
+                "D(x)" : Dx,
+                "D(G(z1))" : DGz1,
+                "D(G(z2))" : DGz2
+            }, this.GlobalStep)
 
-                # ----------------- train generator ------------------- #
-                this.Generator.zero_grad()
-                # invert the label for the generator cost
-                label.fill(Trainer.REAL_LABEL)
-                # run another forward pass on discriminator because we just updated it
-                score: Tensor = this.Discriminator(generated)
-                # calculate loss of generator
-                err_generator: Tensor = this.Criterion(score, label)
-                err_generator.backward()
-                DGz2: float = score.mean().item()
-                this.GeneratorOptimiser.step()
+            this.GlobalStep += 1
 
-                # --------------------- logging ----------------------- #
-                if i % TrainingSetting.LOG_FREQUENCY != 0:
-                    continue
-                trainStats.add_scalars("train", {
-                    "Loss(D)" : err_discriminator.mean().item(),
-                    "Loss(G)" : err_generator.mean().item(),
-                    "D(x)" : Dx,
-                    "D(G(z1))" : DGz1,
-                    "D(G(z2))" : DGz2
-                }, this.GlobalStep)
+    def validate(this, dataLoader: DataLoader) -> None:
+        """
+        @brief Validate the model for one epoch with a provided data loader.
+        Like train, this function does not set the model mode.
 
-                this.GlobalStep += 1
+        @param dataLoader The data loader used for validation.
+        """
+        label: Tensor = torch.zeros((batchSize), dtype = torch.float32)
+        for i, data in enumerate(dataLoader):
+            fake, real, mask = data
+            batchSize = fake.size(0)
+
+            real_norm: Tensor = Trainer.normaliseNote(real)
+
+            # --------------- validate discriminator -------------- #
+            label.fill_(Trainer.REAL_LABEL)
+            score: Tensor = this.Discriminator(real_norm)
+            err_discriminator: Tensor = this.Criterion(score, label)
+            Dx: float = score.mean().item()
+
+            # ---------------- validate generator ----------------- #
+            label.fill_(Trainer.FAKE_LABEL)
+            generated: Tensor = this.Generator(fake, real, mask)
+            score: Tensor = this.Discriminator(generated)
+            err_generator: Tensor = this.Criterion(score, label)
+            DGz: float = score.mean().item()
+
+            # --------------------- logging ----------------------- #
+            if i % TrainingSetting.LOG_FREQUENCY != 0:
+                continue
+            this.Summary.add_scalars("validation", {
+                "Loss(D)" : err_discriminator,
+                "Loss(G)" : err_generator,
+                "D(x)" : Dx,
+                "D(G(z))" : DGz
+            }, this.GlobalStep)

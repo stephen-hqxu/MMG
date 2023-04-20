@@ -15,6 +15,34 @@ import pandas as pd
 
 from typing import Tuple, List, Union
 
+class RandomDataset(Dataset):
+    """
+    @brief For debug purposes only.
+    """
+
+    def __init__(this, random_seed: int, max_time_step: int, size: int):
+        this.SampleGenerator: torch.Generator = torch.Generator().manual_seed(random_seed)
+        """
+        Generate random dataset.
+        """
+        this.MaxTimeStep: int = max_time_step
+        """
+        The maximum possible number of time step to be generated.
+        """
+        this.Size: int = size
+        """
+        The number of entry in the dataset.
+        """
+
+    def __len__(this) -> int:
+        return this.Size
+    
+    def __getitem__(this, idx: int) -> Tuple[Tensor, Tensor]:
+        timeStep: Tensor = torch.randint(1, this.MaxTimeStep + 1, (2, ), generator = this.SampleGenerator)
+        # do not include special tokens, so range is [0, 128)
+        return tuple((torch.randint(0, MidiPianoRoll.NOTE_MAX_LEVEL,
+            (ts, MidiPianoRoll.DIMENSION_PER_TIME_STEP), generator = this.SampleGenerator, dtype = torch.uint8) for ts in timeStep))
+
 class ASAPDataset(Dataset):
     """
     @see https://github.com/fosfrancesco/asap-dataset
@@ -53,6 +81,23 @@ class BatchCollation:
     """
     LengthData = Union[int, np.ndarray]
 
+    START_PAD: Tensor = torch.zeros((
+        TrainingSetting.BATCH_SIZE,
+        EmbeddingSetting.TIME_WINDOW_SIZE,
+        MidiPianoRoll.DIMENSION_PER_TIME_STEP
+    ), dtype = torch.uint8)
+    """
+    Padding to be placed at the beginning of each batched samples for the SOS token.
+    """
+    END_PAD: Tensor = torch.zeros((
+        TrainingSetting.BATCH_SIZE,
+        2 * EmbeddingSetting.TIME_WINDOW_SIZE,
+        MidiPianoRoll.DIMENSION_PER_TIME_STEP
+    ), dtype = torch.uint8)
+    """
+    Padding for rounding up the sample to full time window size, and for the end EOS token.
+    """
+    
     def __init__(this):
         pass
 
@@ -109,14 +154,14 @@ class BatchCollation:
         @return A matrix of padding mask, with size (batch, L) where `L` is the longest sequence in the batch.
         This matrix can be sliced based on current sequence length.
         """
-        batch_size: int = time_window.size
+        batchSize: int = time_window.size
         # things now get a bit tricky, we need to fill padding index for full padded time window
         # if any time step does not make up a full time window, leave it as zero as we filled up initially
         sequence_pad_start: np.ndarray = BatchCollation.calcSequenceLength(time_window)
         max_sequence: int = np.max(sequence_pad_start)
 
-        mask: Tensor = torch.zeros((batch_size, max_sequence), dtype = torch.bool)
-        for b in range(batch_size):
+        mask: Tensor = torch.zeros((batchSize, max_sequence), dtype = torch.bool)
+        for b in range(batchSize):
             mask[b, sequence_pad_start[b]:] = True
         return mask
 
@@ -144,14 +189,16 @@ class BatchCollation:
         timeWindow = timeWindow.transpose()
 
         # data padding and fill token
-        for d_i in range(len(data)): # for example and label
+        for d_i in range(len(data)): # for sample and label
             # round up the size so it's a multiple of window size
             old_size: int = data[d_i].size(1)
             # create one more time window for the end token
             new_size: int = BatchCollation.calcTimeStepLength(BatchCollation.calcTimeWindowLength(old_size) + 1)
+            end_pad_size: int = new_size - old_size
+            assert(end_pad_size <= BatchCollation.END_PAD.size(1))
 
-            start_pad: Tensor = torch.zeros((batchSize, EmbeddingSetting.TIME_WINDOW_SIZE, MidiPianoRoll.DIMENSION_PER_TIME_STEP), dtype = torch.uint8)
-            end_pad: Tensor = torch.zeros((batchSize, new_size - old_size, MidiPianoRoll.DIMENSION_PER_TIME_STEP), dtype = torch.uint8)
+            start_pad: Tensor = BatchCollation.START_PAD[:batchSize, :, :]
+            end_pad: Tensor = BatchCollation.END_PAD[:batchSize, :end_pad_size, :]
             # insert padding
             data[d_i] = torch.concatenate((start_pad, data[d_i], end_pad), dim = 1)
 
@@ -162,6 +209,7 @@ class BatchCollation:
                 end_step: int = BatchCollation.calcTimeStepLength(timeWindow[d_i][b] + 1)
                 pad_step: int = end_step + EmbeddingSetting.TIME_WINDOW_SIZE
 
+                # pur EOS first, then fill in the rest with PAD
                 data[d_i][b, end_step:pad_step, :] = SpecialTokenSetting.EOS
                 data[d_i][b, pad_step:, :] = SpecialTokenSetting.PAD
         # include start and end token to the total time window count
@@ -185,10 +233,9 @@ def loadData(dataset: Dataset) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """
     # split the dataset randomly
     generator: torch.Generator = torch.Generator().manual_seed(DatasetSetting.DATA_SHUFFLE_SEED)
-    train, validation, test = random_split(dataset, DatasetSetting.DATA_SPLIT, generator)
+    split_data = random_split(dataset, DatasetSetting.DATA_SPLIT, generator)
 
-    # indices are already shuffled, no need to shuffle again
-    train_loader: DataLoader = DataLoader(train, TrainingSetting.BATCH_SIZE, collate_fn = BatchCollation())
-    validation_loader: DataLoader = DataLoader(validation, TrainingSetting.BATCH_SIZE, collate_fn = BatchCollation())
-    test_loader: DataLoader = DataLoader(test, TrainingSetting.BATCH_SIZE, collate_fn = BatchCollation())
-    return (train_loader, validation_loader, test_loader)
+    def makeLoader(data: Dataset) -> DataLoader:
+        loaderGen: torch.Generator = torch.Generator().set_state(generator.get_state())
+        return DataLoader(data, TrainingSetting.BATCH_SIZE, shuffle = True, collate_fn = BatchCollation(), generator = loaderGen)
+    return tuple((makeLoader(d) for d in split_data))

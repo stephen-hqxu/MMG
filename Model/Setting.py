@@ -1,3 +1,5 @@
+from Data.MidiPianoRoll import MidiPianoRoll
+
 import os
 from typing import List, Tuple
 
@@ -13,21 +15,21 @@ Set to a lager number reduces the number of allocation, but may increase memory 
 """
 
 class SpecialTokenSetting:
-    SOS: int = 128
+    SOS: int = MidiPianoRoll.NOTE_MAX_LEVEL
     """
     Start Of Sequence
     """
-    EOS: int = 129
+    EOS: int = SOS + 1
     """
     End Of Sequence
     """
-    PAD: int = 130
+    PAD: int = EOS + 1
     """
     Padding
     """
 
 class EmbeddingSetting:
-    NOTE_ORIGINAL_FEATURE_SIZE: int = 131
+    NOTE_ORIGINAL_FEATURE_SIZE: int = MidiPianoRoll.NOTE_MAX_LEVEL + 3
     """
     The feature size before embedding note.
     128 velocity/control value + all special tokens.

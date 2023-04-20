@@ -39,6 +39,12 @@ class MidiPianoRoll:
     The number of controller channel to be encoded into the piano roll.
     """
 
+    NOTE_MAX_LEVEL: int = 128
+    """
+    The maximum of level a note can have. This defines the upper limit of each element in the piano roll.
+    The minimum level of a note is always zero.
+    In another word, the range of data is [0, NOTE_MAX_LEVEL).
+    """
     DIMENSION_PER_TIME_STEP: int = NOTE_COUNT + CONTROLLER_COUNT
     """
     The number of note (velocity and controller data) in a single time step. This is equivalent to the dimension of `y`.
