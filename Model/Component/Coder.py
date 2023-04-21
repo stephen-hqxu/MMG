@@ -66,7 +66,7 @@ class Encoder(Module):
         sourceLength: int = x.size(1)
         srcPad: Tensor = mask.SourcePadding[:, :sourceLength] if mask.SourcePadding is not None else None
 
-        return this.EncoderBlock(x, src_key_padding_mask = srcPad, is_causal = True)
+        return this.EncoderBlock(x, src_key_padding_mask = srcPad, is_causal = TransformerSetting.CAUSAL_ATTENTION_MASK)
     
 class Decoder(Module):
     """
@@ -95,5 +95,6 @@ class Decoder(Module):
         output: Tensor = dec_input
         for dec in this.DecoderLayer:
             output = dec(output, enc_output, tgt_mask = tgtMask,
-                tgt_key_padding_mask = tgtPad, memory_key_padding_mask = srcPad, memory_is_causal = True)
+                tgt_key_padding_mask = tgtPad, memory_key_padding_mask = srcPad,
+                tgt_is_causal = TransformerSetting.CAUSAL_ATTENTION_MASK, memory_is_causal = TransformerSetting.CAUSAL_ATTENTION_MASK)
         return output

@@ -1,6 +1,6 @@
 from Model.Component.Coder import CoderMask
 
-from Model.Setting import SpecialTokenSetting, EmbeddingSetting, DatasetSetting, TrainingSetting
+from Model.Setting import SpecialTokenSetting, EmbeddingSetting, TransformerSetting, DatasetSetting, TrainingSetting
 from Data.MidiPianoRoll import MidiPianoRoll
 
 from pretty_midi import PrettyMIDI
@@ -85,7 +85,7 @@ class BatchCollation:
         TrainingSetting.BATCH_SIZE,
         EmbeddingSetting.TIME_WINDOW_SIZE,
         MidiPianoRoll.DIMENSION_PER_TIME_STEP
-    ), dtype = torch.uint8)
+    ), dtype = torch.int32)
     """
     Padding to be placed at the beginning of each batched samples for the SOS token.
     """
@@ -93,7 +93,7 @@ class BatchCollation:
         TrainingSetting.BATCH_SIZE,
         2 * EmbeddingSetting.TIME_WINDOW_SIZE,
         MidiPianoRoll.DIMENSION_PER_TIME_STEP
-    ), dtype = torch.uint8)
+    ), dtype = torch.int32)
     """
     Padding for rounding up the sample to full time window size, and for the end EOS token.
     """
@@ -185,7 +185,8 @@ class BatchCollation:
             data[1].append(label)
             timeWindow[idx] = BatchCollation.calcTimeWindowLength(np.array([sample.size(0), label.size(0)], dtype = np.uint32))
         # we pad zero by default, to indicate no note information
-        data: List[Tensor] = [pad_sequence(d, True, 0) for d in data] # (batch, time step, note)
+        # convert to IntTensor because embedding only works with that
+        data: List[Tensor] = [pad_sequence(d, True, 0).int() for d in data] # (batch, time step, note)
         timeWindow = timeWindow.transpose()
 
         # data padding and fill token
@@ -217,11 +218,12 @@ class BatchCollation:
 
         # generate mask
         targetSequence: int = BatchCollation.calcSequenceLength(BatchCollation.calcTimeWindowLength(data[1].size(1)))
+        # do not generate explicit masks if causal attention is intended to be used
         mask: CoderMask = CoderMask(
             SourcePadding = BatchCollation.makePadMask(timeWindow[0]),
             TargetPadding = BatchCollation.makePadMask(timeWindow[1]),
             TargetAttention = BatchCollation.makeNoPeekMask(targetSequence)
-        )
+        ) if not TransformerSetting.CAUSAL_ATTENTION_MASK else CoderMask()
         return (*data, mask)
     
 def loadData(dataset: Dataset) -> Tuple[DataLoader, DataLoader, DataLoader]:

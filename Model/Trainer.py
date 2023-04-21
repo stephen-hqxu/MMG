@@ -13,6 +13,8 @@ from torch.optim import Adam
 import datetime
 from enum import IntEnum
 
+import os
+
 class Trainer():
     """
     Matching-based MIDI humanisation model training.
@@ -53,6 +55,9 @@ class Trainer():
         The number of training step run in total, one training iteration is one global step; only updated during training.
         """
         this.Criterion: BCELoss = BCELoss()
+
+        # allocated memory
+        this.Label: Tensor = torch.zeros((TrainingSetting.BATCH_SIZE), dtype = torch.float32)
 
     def __del__(this):
         this.Summary.close()
@@ -97,7 +102,11 @@ class Trainer():
         @param module_name The name of the saving model.
         A datetime will be automatically appended to the end of the name.
         """
-        time: str = str(datetime.datetime.today().strftime("%x_%X"))
+        checkpointPath: str = DatasetSetting.MODEL_OUTPUT_PATH
+        if not os.path.exists(checkpointPath):
+            os.makedirs(checkpointPath)
+
+        time: str = str(datetime.datetime.today().strftime("%Y-%m-%d_%H-%M-%S"))
 
         this.Summary.flush()
         torch.save({
@@ -113,7 +122,7 @@ class Trainer():
             "global_step" : this.GlobalStep,
             "criterion" : this.Criterion.state_dict()
             # filename extension follows PyTorch's convention
-        }, DatasetSetting.MODEL_OUTPUT_PATH + '/' + model_name + '-' + time + ".tar")
+        }, checkpointPath + '/' + model_name + '-' + time + ".tar")
 
     def setMode(this, mode: OperationMode) -> None:
         """
@@ -143,10 +152,10 @@ class Trainer():
         @param dataLoader The dataloader for which the model will be trained on.
         @see setMode()
         """
-        label: Tensor = torch.zeros((batchSize), dtype = torch.float32)
         for i, data in enumerate(dataLoader):
             fake, real, mask = data # source is robotic MIDI (fake), target is performance MIDI (real)
             batchSize: int = fake.size(0)
+            label: Tensor = this.Label[:batchSize]
             # normalised data for discriminator
             real_norm: Tensor = Trainer.normaliseNote(real)
 
@@ -206,10 +215,10 @@ class Trainer():
 
         @param dataLoader The data loader used for validation.
         """
-        label: Tensor = torch.zeros((batchSize), dtype = torch.float32)
         for i, data in enumerate(dataLoader):
             fake, real, mask = data
             batchSize = fake.size(0)
+            label: Tensor = this.Label[:batchSize]
 
             real_norm: Tensor = Trainer.normaliseNote(real)
 

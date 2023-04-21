@@ -69,6 +69,10 @@ class TransformerSetting:
     """
     The number of hidden layers for encoder and decoder.
     """
+    CAUSAL_ATTENTION_MASK: bool = False
+    """
+    Indicate whether to apply causal mask instead of the explicitly generated attention.
+    """
 
 class DiscriminatorSetting:
     TIME_KERNEL_SIZE: List[int] = [8, 8, 8, 16]
