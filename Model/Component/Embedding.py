@@ -84,9 +84,10 @@ class PositionEmbedding(Module):
         position: Tensor = torch.arange(EmbeddingSetting.MAX_SEQUENCE_LENGTH)
         normaliser: Tensor = torch.exp(torch.arange(0, EmbeddingSetting.EMBEDDED_FEATURE_SIZE, 2) * (-4 / EmbeddingSetting.EMBEDDED_FEATURE_SIZE)).unsqueeze(1)
 
-        pe: Tensor = torch.zeros((EmbeddingSetting.EMBEDDED_FEATURE_SIZE, 1, EmbeddingSetting.MAX_SEQUENCE_LENGTH), dtype = torch.float32)
-        pe[0::2, 0, :] = torch.sin(position * normaliser)
-        pe[1::2, 0, :] = torch.cos(position * normaliser)
+        # batch and note axis will be broadcasted
+        pe: Tensor = torch.zeros((1, EmbeddingSetting.EMBEDDED_FEATURE_SIZE, 1, EmbeddingSetting.MAX_SEQUENCE_LENGTH), dtype = torch.float32)
+        pe[0, 0::2, 0, :] = torch.sin(position * normaliser)
+        pe[0, 1::2, 0, :] = torch.cos(position * normaliser)
 
         this.register_buffer("PositionEncoder", pe)
 
@@ -96,9 +97,7 @@ class PositionEmbedding(Module):
         Output: same shape as this input
         """
         # we only need to embed temporal position
-        for bat in range(x.size(0)):
-            x[bat] += this.PositionEncoder[:, :, :x.size(3)]
-        return this.Zeroing(x)
+        return this.Zeroing(x + this.PositionEncoder[:, :, :, :x.size(3)])
     
 class FullEmbedding(Module):
     """

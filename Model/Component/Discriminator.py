@@ -34,7 +34,7 @@ class Discriminator(Module):
             Conv2d(feature_in[0], feature_out[0],
                 (MidiPianoRoll.DIMENSION_PER_TIME_STEP, getKernel(0)),
                 (MidiPianoRoll.DIMENSION_PER_TIME_STEP, getStride(0)),
-                (0, getPadding(0))),
+                (0, getPadding(0)), bias = False),
             Flatten(2, 3), # remove dimension 1 note axis, now (batch, feature, time)
             activate()
         ])
@@ -43,7 +43,7 @@ class Discriminator(Module):
         # for hidden layers
         for i in range(1, layerCount - 1):
             roll2seq.extend([
-                Conv1d(feature_in[i], feature_out[i], getKernel(i), getStride(i), getPadding(i)),
+                Conv1d(feature_in[i], feature_out[i], getKernel(i), getStride(i), getPadding(i), bias = False),
                 BatchNorm1d(feature_out[i]),
                 activate()
             ])
@@ -51,7 +51,7 @@ class Discriminator(Module):
         # for output layer, kernels are non-overlapping and with no padding, and summarise all feature to 1
         lastKernel: int = getKernel(-1)
         roll2seq.extend([
-            Conv1d(feature_in[-1], feature_out[-1], lastKernel, lastKernel),
+            Conv1d(feature_in[-1], feature_out[-1], lastKernel, lastKernel, bias = False),
             activate(),
             Flatten(1, 2), # remove feature, now (batch, time)
             Unflatten(1, (-1, 1)) # create feature axis for LSTM, now (batch, time, feature)

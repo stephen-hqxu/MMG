@@ -45,7 +45,10 @@ class MidiNoteRepresentation:
         A matrix of N*4, where N is the total number of note.
         Each row contains 4 elements: start time, end time, velocity and pitch.
         """
-        this.DamperEvent: np.ndarray = np.array(sorted(damper_event, key = lambda d : d[0]), dtype = np.uint32)
+        # Handle the case when damper is unused in this MIDI file.
+        # To ensure the effectiveness of empty time removal later, add a dummy damper pedal event with start time same as that of the first note.
+        this.DamperEvent: np.ndarray = np.array(sorted(damper_event, key = lambda d : d[0]) if len(damper_event) > 0
+            else [(this.NoteEvent[0][0], 0)], dtype = np.uint32)
         """
         A matrix of N*2, where N is the same as the number of note.
         Each row contains 2 elements: time and value.
@@ -56,7 +59,7 @@ class MidiNoteRepresentation:
             this.NoteEvent[0][0],
             this.DamperEvent[0][0]
         )
-        this.offsetTime(-timeStart)
+        this.offsetTime(-np.int32(timeStart)) # cast to signed integer to avoid overflow
 
     @classmethod
     def fromMidiCollection(cls, midi_collection: List[PrettyMIDI], padding: int = 0):
@@ -116,11 +119,15 @@ class MidiNoteRepresentation:
             this.DamperEvent[-1][0]
         )
     
-    def offsetTime(this, offset: int) -> None:
+    def offsetTime(this, offset: np.dtype) -> None:
         """
         @brief Increment the time information for all data in the note representation.
+        Please be aware of time overflow/underflow as this exception is not handled.
 
         @param offset The number of tick to move.
         """
-        this.NoteEvent[:, 0:2] += offset
-        this.DamperEvent[:, 0] += offset
+        # this is to force type casting, otherwise NumPy will throw error
+        def addTime(data: np.ndarray):
+            np.add(data, offset, out = data, casting = "unsafe")
+        addTime(this.NoteEvent[:, 0:2])
+        addTime(this.DamperEvent[:, 0])

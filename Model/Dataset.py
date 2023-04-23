@@ -67,7 +67,7 @@ class ASAPDataset(Dataset):
     
     def __getitem__(this, idx: int) -> Tuple[Tensor, Tensor]:
         # read MIDI from file into piano roll
-        midi_filename: pd.DataFrame = this.ASAPMeta.iloc[[idx]]
+        midi_filename: pd.DataFrame = this.ASAPMeta.iloc[idx]
         midi_data: List[Tensor] = list()
         for _, filename in midi_filename.items():
             midi: PrettyMIDI = PrettyMIDI(this.ASAPRoot + filename)
