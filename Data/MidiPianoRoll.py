@@ -68,9 +68,14 @@ class MidiPianoRoll:
         All derived data structures are meant to be references of this piano roll.
         """
         velocityMatrix: np.ndarray = this.velocity()
+        pitchStart: int = MidiPianoRoll.NOTE_START
+        pitchEnd: int = pitchStart + MidiPianoRoll.NOTE_COUNT # one past the end
         for start, end, velocity, pitch in midi_note.NoteEvent:
             # all invalid notes should have been removed by pretty MIDI
             assert(start < end)
+            if pitch < pitchStart or pitch >= pitchEnd:
+                # skip out-of-domain pitches
+                continue
 
             pitch_idx: int = MidiPianoRoll.pitchToIndex(pitch)
             velocityMatrix[start:end, pitch_idx] = velocity

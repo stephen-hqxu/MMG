@@ -155,7 +155,7 @@ class Trainer():
         for i, data in enumerate(dataLoader):
             fake, real, mask = data # source is robotic MIDI (fake), target is performance MIDI (real)
             batchSize: int = fake.size(0)
-            label: Tensor = this.Label[:batchSize]
+            label: Tensor = this.Label[:batchSize].detach()
             # normalised data for discriminator
             real_norm: Tensor = Trainer.normaliseNote(real)
 
@@ -218,7 +218,7 @@ class Trainer():
         for i, data in enumerate(dataLoader):
             fake, real, mask = data
             batchSize = fake.size(0)
-            label: Tensor = this.Label[:batchSize]
+            label: Tensor = this.Label[:batchSize].detach()
 
             real_norm: Tensor = Trainer.normaliseNote(real)
 

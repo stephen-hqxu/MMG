@@ -13,7 +13,7 @@ from torch.nn.utils.rnn import pad_sequence
 import numpy as np
 import pandas as pd
 
-from typing import Tuple, List, Union
+from typing import Tuple, List, Union, Dict
 
 class RandomDataset(Dataset):
     """
@@ -25,6 +25,11 @@ class RandomDataset(Dataset):
         """
         Generate random dataset.
         """
+        this.SampleState: Dict[int, Tensor] = dict()
+        """
+        A hash table of generator states for each index, to be restored.
+        """
+
         this.MaxTimeStep: int = max_time_step
         """
         The maximum possible number of time step to be generated.
@@ -38,6 +43,13 @@ class RandomDataset(Dataset):
         return this.Size
     
     def __getitem__(this, idx: int) -> Tuple[Tensor, Tensor]:
+        if idx in this.SampleState:
+            # restore generator state
+            this.SampleGenerator.set_state(this.SampleState[idx])
+        else:
+            # store the current state so it can be restored later
+            this.SampleState[idx] = this.SampleGenerator.get_state()
+
         timeStep: Tensor = torch.randint(1, this.MaxTimeStep + 1, (2, ), generator = this.SampleGenerator)
         # do not include special tokens, so range is [0, 128)
         return tuple((torch.randint(0, MidiPianoRoll.NOTE_MAX_LEVEL,
