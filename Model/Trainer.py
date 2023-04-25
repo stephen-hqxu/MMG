@@ -44,9 +44,10 @@ class Trainer():
         this.Discriminator: Disc = Disc()
 
         # TODO: may want to use dynamic learning rate
-        opt_param = { "lr" : TrainingSetting.LEARNING_RATE, "betas" : (TrainingSetting.BETA[0], TrainingSetting.BETA[1]) }
-        this.GeneratorOptimiser: Adam = Adam(this.Generator.parameters(), **opt_param)
-        this.DiscriminatorOptimiser: Adam = Adam(this.Discriminator.parameters(), **opt_param)
+        this.GeneratorOptimiser: Adam = Adam(this.Generator.parameters(),
+            lr = TrainingSetting.LR_GENERATOR, betas = TrainingSetting.BETA_GENERATOR)
+        this.DiscriminatorOptimiser: Adam = Adam(this.Discriminator.parameters(),
+            lr = TrainingSetting.LR_DISCRIMINATOR, betas = TrainingSetting.BETA_DISCRIMINATOR)
 
         # parameters to be updated during training
         this.Epoch: int = 0
@@ -196,17 +197,15 @@ class Trainer():
             this.GeneratorOptimiser.step()
 
             # --------------------- logging ----------------------- #
-            if i % TrainingSetting.LOG_FREQUENCY != 0:
-                continue
-            this.Summary.add_scalars("train", {
-                "Loss(D)" : err_discriminator.mean().item(),
-                "Loss(G)" : err_generator.mean().item(),
-                "D(x)" : Dx,
-                "D(G(z1))" : DGz1,
-                "D(G(z2))" : DGz2
-            }, this.GlobalStep)
-
-            this.GlobalStep += 1
+            if i % TrainingSetting.LOG_FREQUENCY == 0:
+                this.Summary.add_scalars("train", {
+                    "Loss(D)" : err_discriminator.mean().item(),
+                    "Loss(G)" : err_generator.mean().item(),
+                    "D(x)" : Dx,
+                    "D(G(z1))" : DGz1,
+                    "D(G(z2))" : DGz2
+                }, this.GlobalStep)
+                this.GlobalStep += 1
 
     def validate(this, dataLoader: DataLoader) -> None:
         """
@@ -215,32 +214,32 @@ class Trainer():
 
         @param dataLoader The data loader used for validation.
         """
-        for i, data in enumerate(dataLoader):
-            fake, real, mask = data
-            batchSize = fake.size(0)
-            label: Tensor = this.Label[:batchSize].detach()
+        with torch.no_grad():
+            for i, data in enumerate(dataLoader):
+                fake, real, mask = data
+                batchSize = fake.size(0)
+                label: Tensor = this.Label[:batchSize].detach()
 
-            real_norm: Tensor = Trainer.normaliseNote(real)
+                real_norm: Tensor = Trainer.normaliseNote(real)
 
-            # --------------- validate discriminator -------------- #
-            label.fill_(Trainer.REAL_LABEL)
-            score: Tensor = this.Discriminator(real_norm)
-            err_discriminator: Tensor = this.Criterion(score, label)
-            Dx: float = score.mean().item()
+                # --------------- validate discriminator -------------- #
+                label.fill_(Trainer.REAL_LABEL)
+                score: Tensor = this.Discriminator(real_norm)
+                err_discriminator: Tensor = this.Criterion(score, label)
+                Dx: float = score.mean().item()
 
-            # ---------------- validate generator ----------------- #
-            label.fill_(Trainer.FAKE_LABEL)
-            generated: Tensor = this.Generator(fake, real, mask)
-            score: Tensor = this.Discriminator(generated)
-            err_generator: Tensor = this.Criterion(score, label)
-            DGz: float = score.mean().item()
+                # ---------------- validate generator ----------------- #
+                label.fill_(Trainer.FAKE_LABEL)
+                generated: Tensor = this.Generator(fake, real, mask)
+                score: Tensor = this.Discriminator(generated)
+                err_generator: Tensor = this.Criterion(score, label)
+                DGz: float = score.mean().item()
 
-            # --------------------- logging ----------------------- #
-            if i % TrainingSetting.LOG_FREQUENCY != 0:
-                continue
-            this.Summary.add_scalars("validation", {
-                "Loss(D)" : err_discriminator,
-                "Loss(G)" : err_generator,
-                "D(x)" : Dx,
-                "D(G(z))" : DGz
-            }, this.GlobalStep)
+                # --------------------- logging ----------------------- #
+                if i % TrainingSetting.LOG_FREQUENCY == 0:
+                    this.Summary.add_scalars("validation", {
+                        "Loss(D)" : err_discriminator,
+                        "Loss(G)" : err_generator,
+                        "D(x)" : Dx,
+                        "D(G(z))" : DGz
+                    }, this.GlobalStep)
