@@ -14,11 +14,11 @@ class SpecialTokenSetting:
 class EmbeddingSetting:
     NOTE_ORIGINAL_FEATURE_SIZE: int = MidiPianoRoll.NOTE_MAX_LEVEL + 3
     NOTE_EMBEDDING_FEATURE_SIZE: int = 128
-    TIME_EMBEDDING_LAYER_KERNEL: List[int] = [32, 32]
+    TIME_EMBEDDING_LAYER_KERNEL: List[int] = [8, 8, 4, 4]
 
     TIME_WINDOW_SIZE: int = 1024
     EMBEDDED_FEATURE_SIZE: int = 256
-    MAX_SEQUENCE_LENGTH: int = 8192
+    MAX_SEQUENCE_LENGTH: int = 1024
 
 class TransformerSetting:
     ATTENTION_HEAD_COUNT: int = 4

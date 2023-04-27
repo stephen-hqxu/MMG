@@ -1,6 +1,7 @@
 from Model.Component.Coder import CoderMask
 
 from Model.Setting import SpecialTokenSetting, EmbeddingSetting, TransformerSetting, DatasetSetting, TrainingSetting
+from Model import DataUtility
 from Data.MidiPianoRoll import MidiPianoRoll
 
 from pretty_midi import PrettyMIDI
@@ -13,7 +14,7 @@ from torch.nn.utils.rnn import pad_sequence
 import numpy as np
 import pandas as pd
 
-from typing import Tuple, List, Union, Dict
+from typing import Tuple, List, Dict
 
 class RandomDataset(Dataset):
     """
@@ -91,7 +92,6 @@ class BatchCollation:
     """
     @brief Post-process data returned from dataset so they can be used in a batch.
     """
-    LengthData = Union[int, np.ndarray]
 
     START_PAD: Tensor = torch.zeros((
         TrainingSetting.BATCH_SIZE,
@@ -113,70 +113,6 @@ class BatchCollation:
     def __init__(this):
         pass
 
-    @staticmethod
-    def calcTimeWindowLength(time_step: LengthData) -> LengthData:
-        """
-        @brief Calculate the number of time window based on given number of time step.
-
-        @param time_step The number of time step.
-        @return The length of time window.
-        """
-        # minus one on time step because it is a size, we are calculating as an index
-        return (time_step - 1) // EmbeddingSetting.TIME_WINDOW_SIZE + 1
-    
-    @staticmethod
-    def calcTimeStepLength(time_window: LengthData) -> LengthData:
-        """
-        @brief Inverse of calcTimeWindowLength(); time step is a round-up multiple of the original time step.
-
-        @see calcTimeWindowLength()
-        """
-        return time_window * EmbeddingSetting.TIME_WINDOW_SIZE
-    
-    @staticmethod
-    def calcSequenceLength(time_window: LengthData) -> LengthData:
-        """
-        @brief Calculate the sequence length based on the number of time window given.
-
-        @param time_window The number of time window.
-        @return The length of sequence.
-        """
-        return time_window * MidiPianoRoll.DIMENSION_PER_TIME_STEP
-    
-    @staticmethod
-    def makeNoPeekMask(extent: int) -> Tensor:
-        """
-        @brief Create mask that prevents paying attention to the sequence beyond the current input.
-
-        @param extent The length of of extent of the square mask matrix.
-        @return The boolean mask, with size (extent, extent).
-        This mask can be sliced from top-left origin to any size square matrix for different input sequence length.
-        """
-        mask: Tensor = torch.ones((extent, extent), dtype = torch.bool)
-        # create triangular matrix
-        return torch.triu(mask, out = mask, diagonal = 1)
-    
-    @staticmethod
-    def makePadMask(time_window: np.ndarray) -> Tensor:
-        """
-        @brief Create mask that ignores attention at certain position.
-        This is used for padding due to use of mini-batch, such that padding are always at the end of each sequence.
-
-        @param time_window Specifies an array of time window size for each batch.
-        @return A matrix of padding mask, with size (batch, L) where `L` is the longest sequence in the batch.
-        This matrix can be sliced based on current sequence length.
-        """
-        batchSize: int = time_window.size
-        # things now get a bit tricky, we need to fill padding index for full padded time window
-        # if any time step does not make up a full time window, leave it as zero as we filled up initially
-        sequence_pad_start: np.ndarray = BatchCollation.calcSequenceLength(time_window)
-        max_sequence: int = np.max(sequence_pad_start)
-
-        mask: Tensor = torch.zeros((batchSize, max_sequence), dtype = torch.bool)
-        for b in range(batchSize):
-            mask[b, sequence_pad_start[b]:] = True
-        return mask
-
     def __call__(this, batch: List[Tuple[Tensor, Tensor]]) -> Tuple[Tensor, Tensor, CoderMask]:
         """
         @brief Collate a number of samples into a batch.
@@ -195,7 +131,7 @@ class BatchCollation:
 
             data[0].append(sample)
             data[1].append(label)
-            timeWindow[idx] = BatchCollation.calcTimeWindowLength(np.array([sample.size(0), label.size(0)], dtype = np.uint32))
+            timeWindow[idx] = DataUtility.calcTimeWindowLength(np.array([sample.size(0), label.size(0)], dtype = np.uint32))
         # we pad zero by default, to indicate no note information
         # convert to IntTensor because embedding only works with that
         data: List[Tensor] = [pad_sequence(d, True, 0).int() for d in data] # (batch, time step, note)
@@ -206,7 +142,7 @@ class BatchCollation:
             # round up the size so it's a multiple of window size
             old_size: int = data[d_i].size(1)
             # create one more time window for the end token
-            new_size: int = BatchCollation.calcTimeStepLength(BatchCollation.calcTimeWindowLength(old_size) + 1)
+            new_size: int = DataUtility.calcTimeStepLength(DataUtility.calcTimeWindowLength(old_size) + 1)
             end_pad_size: int = new_size - old_size
             assert(end_pad_size <= BatchCollation.END_PAD.size(1))
 
@@ -219,7 +155,7 @@ class BatchCollation:
             data[d_i][:, :EmbeddingSetting.TIME_WINDOW_SIZE, :] = SpecialTokenSetting.SOS
             # for end and pad token, we only fill in if there is a full time window
             for b in range(batchSize):
-                end_step: int = BatchCollation.calcTimeStepLength(timeWindow[d_i][b] + 1)
+                end_step: int = DataUtility.calcTimeStepLength(timeWindow[d_i][b] + 1)
                 pad_step: int = end_step + EmbeddingSetting.TIME_WINDOW_SIZE
 
                 # pur EOS first, then fill in the rest with PAD
@@ -229,12 +165,12 @@ class BatchCollation:
         timeWindow += 2
 
         # generate mask
-        targetSequence: int = BatchCollation.calcSequenceLength(BatchCollation.calcTimeWindowLength(data[1].size(1)))
+        targetSequence: int = DataUtility.calcSequenceLength(DataUtility.calcTimeWindowLength(data[1].size(1)))
         # do not generate explicit masks if causal attention is intended to be used
         mask: CoderMask = CoderMask(
-            SourcePadding = BatchCollation.makePadMask(timeWindow[0]),
-            TargetPadding = BatchCollation.makePadMask(timeWindow[1]),
-            TargetAttention = BatchCollation.makeNoPeekMask(targetSequence)
+            SourcePadding = DataUtility.makePadMask(timeWindow[0]),
+            TargetPadding = DataUtility.makePadMask(timeWindow[1]),
+            TargetAttention = DataUtility.makeNoPeekMask(targetSequence)
         ) if not TransformerSetting.CAUSAL_ATTENTION_MASK else CoderMask()
         return (*data, mask)
     

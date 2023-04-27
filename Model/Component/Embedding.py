@@ -3,11 +3,11 @@ from Model.Setting import EmbeddingSetting, DropoutSetting
 
 import torch
 from torch import Tensor
-from torch.nn import Module, Dropout, Embedding, Sequential, Linear, Conv2d, ConvTranspose2d, Hardswish, Tanh
+from torch.nn import Module, Dropout, Embedding, Sequential, Linear, Conv2d, ConvTranspose2d, Hardswish, Softmax
 
 import numpy as np
 
-from typing import List, Tuple, TypeVar
+from typing import Tuple, TypeVar
 
 L = TypeVar("L")
 """
@@ -45,11 +45,11 @@ class TimeStepEmbedding(Module):
     def __init__(this):
         super().__init__()
         # split the input feature into different embedding vectors based on their categories
-        # frequency of appearance of each note is not the same, it is definite some notes are used less than others, so scale gradient
-        embedding_param = { "num_embeddings" : EmbeddingSetting.NOTE_ORIGINAL_FEATURE_SIZE,
-            "embedding_dim" : EmbeddingSetting.NOTE_EMBEDDING_FEATURE_SIZE, "scale_grad_by_freq" : True }
-        this.VelocityEmbedding: Embedding = Embedding(**embedding_param)
-        this.ControlEmbedding: Embedding = Embedding(**embedding_param)
+        def embedFeature() -> Embedding:
+            # frequency of appearance of each note is not the same, it is definite some notes are used less than others, so scale gradient
+            return Embedding(EmbeddingSetting.NOTE_ORIGINAL_FEATURE_SIZE, EmbeddingSetting.NOTE_EMBEDDING_FEATURE_SIZE, scale_grad_by_freq = True)
+        this.VelocityEmbedding: Embedding = embedFeature()
+        this.ControlEmbedding: Embedding = embedFeature()
 
         # dimensionality reduction of time
         this.TimeReduction: Sequential = createTimeStepSequence(Conv2d, True)
@@ -131,16 +131,19 @@ class TimeStepExpansion(Module):
         this.TimeExpansion: Sequential = createTimeStepSequence(ConvTranspose2d, False)
 
         # The output from the transformer is linear, so a single layer for each suffices.
-        expansion_param = { "in_features" : EmbeddingSetting.NOTE_EMBEDDING_FEATURE_SIZE, "out_features": 1 }
-        this.VelocityProjection: Linear = Linear(**expansion_param)
-        this.ControlProjection: Linear = Linear(**expansion_param)
-
-        this.Activate: Tanh = Tanh()
+        def lineariseFeatureEmbedding() -> Sequential:
+            return Sequential(
+                Linear(EmbeddingSetting.NOTE_EMBEDDING_FEATURE_SIZE, EmbeddingSetting.NOTE_ORIGINAL_FEATURE_SIZE),
+                # get a probability of each original feature level, this is the velocity of control changes value at each matrix cell
+                Softmax(3)
+            )
+        this.VelocityProjection: Sequential = lineariseFeatureEmbedding()
+        this.ControlProjection: Sequential = lineariseFeatureEmbedding()
 
     def forward(this, x: Tensor) -> Tensor:
         """
         Input: shape of output of full embedding.
-        Output: shape of input of time step embedding. The output is activated to signed normalised range.
+        Output: shape of input of time step embedding. The output is activated back to integer with the same range as input to the full embedding.
         """
         # undo dimensionality reduction of time
         x = this.TimeExpansion(x)
@@ -149,7 +152,8 @@ class TimeStepExpansion(Module):
         # undo note feature embedding
         vel: Tensor = this.VelocityProjection(x[:, :, MidiPianoRoll.sliceVelocity(), :])
         ctrl: Tensor = this.ControlProjection(x[:, :, MidiPianoRoll.sliceControl(), :])
-        # remove feature dimension
-        x = torch.cat((vel, ctrl), dim = 2)[:, :, :, 0] # (batch, time step, note)
+        # identify the feature with the highest probability, to shape (batch, time step, note)
+        vel = vel.argmax(3).int()
+        ctrl = ctrl.argmax(3).int()
 
-        return this.Activate(x)
+        return torch.cat((vel, ctrl), dim = 2)

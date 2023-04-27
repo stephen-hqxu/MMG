@@ -1,7 +1,10 @@
+from Model.Component.Coder import CoderMask
 from Model.Component.Transformer import Transformer as Gen
 from Model.Component.Discriminator import Discriminator as Disc
 
 from Model.Setting import EmbeddingSetting, DatasetSetting, TrainingSetting
+
+from Model import DataUtility
 
 import torch
 from torch import Tensor
@@ -12,6 +15,7 @@ from torch.optim import Adam
 
 import datetime
 from enum import IntEnum
+from typing import Tuple
 
 import os
 
@@ -28,7 +32,7 @@ class Trainer():
         """
         @brief The mode of operation.
         """
-        EVALUATION = 0x00
+        INFERENCE = 0x00
         TRAIN = 0xFF
 
     def __init__(this, log_name: str):
@@ -43,7 +47,7 @@ class Trainer():
         this.Generator: Gen = Gen()
         this.Discriminator: Disc = Disc()
 
-        # TODO: may want to use dynamic learning rate
+        # FIXME: definitely should use dynamic learning rate
         this.GeneratorOptimiser: Adam = Adam(this.Generator.parameters(),
             lr = TrainingSetting.LR_GENERATOR, betas = TrainingSetting.BETA_GENERATOR)
         this.DiscriminatorOptimiser: Adam = Adam(this.Discriminator.parameters(),
@@ -96,6 +100,25 @@ class Trainer():
         """
         return note.float() / EmbeddingSetting.NOTE_ORIGINAL_FEATURE_SIZE * 2.0 - 1.0
     
+    @staticmethod
+    def shiftTarget(target: Tensor, mask_ref: CoderMask) -> Tuple[Tensor, Tensor]:
+        """
+        @brief Shift the target based on the transformer specification, and modify the mask accordingly.
+
+        @param target The target input.
+        @param mask_ref The mask, which will be modified in-place based on the target input.
+
+        @return The shifted target input and target expected output.
+        """
+        # for input, exclude the last time window
+        # for output, exclude the first one
+        windowSkip: int = DataUtility.calcTimeStepLength(1)
+        sequenceSkip: int = DataUtility.calcSequenceLength(1)
+
+        mask_ref.TargetPadding = mask_ref.TargetPadding[:, :-sequenceSkip]
+        mask_ref.TargetAttention = mask_ref.TargetAttention[:-sequenceSkip, :-sequenceSkip]
+        return (target[:, :-windowSkip, :], target[:, windowSkip:, :])
+    
     def checkpoint(this, model_name: str) -> None:
         """
         @brief Save the current state of the trainer to a file.
@@ -132,7 +155,7 @@ class Trainer():
         @param mode The mode set to.
         """
         match(mode):
-            case Trainer.OperationMode.EVALUATION:
+            case Trainer.OperationMode.INFERENCE:
                 this.Generator.eval()
                 this.Discriminator.eval()
             case Trainer.OperationMode.TRAIN:
@@ -155,16 +178,17 @@ class Trainer():
         """
         for i, data in enumerate(dataLoader):
             fake, real, mask = data # source is robotic MIDI (fake), target is performance MIDI (real)
+            realInput, realExpected = Trainer.shiftTarget(real, mask)
+
             batchSize: int = fake.size(0)
             label: Tensor = this.Label[:batchSize].detach()
-            # normalised data for discriminator
-            real_norm: Tensor = Trainer.normaliseNote(real)
 
             # ---------------- train discriminator --------------- #
             this.Discriminator.zero_grad()
             # train with all real batch
             label.fill_(Trainer.REAL_LABEL)
-            score: Tensor = this.Discriminator(real_norm)
+            # normalised data for discriminator
+            score: Tensor = this.Discriminator(Trainer.normaliseNote(realExpected))
             # calculate loss on all real batch
             err_real: Tensor = this.Criterion(score, label)
             # calculate gradient of discriminator in backward pass
@@ -173,7 +197,7 @@ class Trainer():
 
             # train with all fake batch, basically just run the generator as usual
             label.fill_(Trainer.FAKE_LABEL)
-            generated: Tensor = this.Generator(fake, real, mask)
+            generated: Tensor = Trainer.normaliseNote(this.Generator(fake, realInput, mask))
             # we consider everything from the generator is fake
             score: Tensor = this.Discriminator(generated.detach()) # prevent updating parameters on generator
             err_fake: Tensor = this.Criterion(score, label)
@@ -205,7 +229,7 @@ class Trainer():
                     "D(G(z1))" : DGz1,
                     "D(G(z2))" : DGz2
                 }, this.GlobalStep)
-                this.GlobalStep += 1
+            this.GlobalStep += 1
 
     def validate(this, dataLoader: DataLoader) -> None:
         """
@@ -217,20 +241,20 @@ class Trainer():
         with torch.no_grad():
             for i, data in enumerate(dataLoader):
                 fake, real, mask = data
+                realInput, realExpected = Trainer.shiftTarget(real, mask)
+
                 batchSize = fake.size(0)
                 label: Tensor = this.Label[:batchSize].detach()
 
-                real_norm: Tensor = Trainer.normaliseNote(real)
-
                 # --------------- validate discriminator -------------- #
                 label.fill_(Trainer.REAL_LABEL)
-                score: Tensor = this.Discriminator(real_norm)
+                score: Tensor = this.Discriminator(Trainer.normaliseNote(realExpected))
                 err_discriminator: Tensor = this.Criterion(score, label)
                 Dx: float = score.mean().item()
 
                 # ---------------- validate generator ----------------- #
                 label.fill_(Trainer.FAKE_LABEL)
-                generated: Tensor = this.Generator(fake, real, mask)
+                generated: Tensor = Trainer.normaliseNote(this.Generator(fake, realInput, mask))
                 score: Tensor = this.Discriminator(generated)
                 err_generator: Tensor = this.Criterion(score, label)
                 DGz: float = score.mean().item()

@@ -1,10 +1,11 @@
 # Music Generation by Matching Piano Roll
 
-This repository contains the implementation to generate a humanised music by matching two MIDI files in piano roll representation. The codebase is developed with *Python*. The project directory structure is pretty simple to navigate; specifically, you might be interested to take a look into the following folders:
+Year 4 MEng Group Project
+
+This repository contains the code to generate a humanised music by matching two MIDI files in piano roll representation. The codebase is developed with *Python*. The project directory structure is pretty simple to navigate; specifically, you might be interested to take a look into the following folders:
 
 - **Data** - Preprocess MIDI files and format the data into note and piano roll representation.
 - **Model** - The main model of this project.
-- **Parameter** - Parameters for the main model and training process.
 
 ## Dependencies
 
