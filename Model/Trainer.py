@@ -197,7 +197,7 @@ class Trainer():
 
             # train with all fake batch, basically just run the generator as usual
             label.fill_(Trainer.FAKE_LABEL)
-            generated: Tensor = Trainer.normaliseNote(this.Generator(fake, realInput, mask))
+            generated: Tensor = this.Generator(fake, realInput, mask)
             # we consider everything from the generator is fake
             score: Tensor = this.Discriminator(generated.detach()) # prevent updating parameters on generator
             err_fake: Tensor = this.Criterion(score, label)
@@ -254,7 +254,7 @@ class Trainer():
 
                 # ---------------- validate generator ----------------- #
                 label.fill_(Trainer.FAKE_LABEL)
-                generated: Tensor = Trainer.normaliseNote(this.Generator(fake, realInput, mask))
+                generated: Tensor = this.Generator(fake, realInput, mask)
                 score: Tensor = this.Discriminator(generated)
                 err_generator: Tensor = this.Criterion(score, label)
                 DGz: float = score.mean().item()

@@ -29,6 +29,7 @@ All setting names are capitalised in the setting file, and all spaces should be 
 | time window size | The number of time step to be grouped together into one feature, for dimensionality reduction. |
 | embedded feature size | The number of element in the feature vector after embedding an input feature, including both note and time. |
 | max sequence length | The maximum number of time window (grouped time step) the model can take. |
+| note feature summary layer feature | The feature size for each hidden linear layer used for summarising the probabilistic output note features into a single note feature. Can be an empty list to denote a single output linear. |
 
 ## Transformer
 

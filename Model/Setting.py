@@ -20,6 +20,8 @@ class EmbeddingSetting:
     EMBEDDED_FEATURE_SIZE: int = 256
     MAX_SEQUENCE_LENGTH: int = 1024
 
+    NOTE_FEATURE_SUMMARY_LAYER_FEATURE: List[int] = [64, 16]
+
 class TransformerSetting:
     ATTENTION_HEAD_COUNT: int = 4
     FEED_FORWARD_LATENT_SIZE: int = 2048

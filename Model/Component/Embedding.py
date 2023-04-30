@@ -3,11 +3,11 @@ from Model.Setting import EmbeddingSetting, DropoutSetting
 
 import torch
 from torch import Tensor
-from torch.nn import Module, Dropout, Embedding, Sequential, Linear, Conv2d, ConvTranspose2d, Hardswish, Softmax
+from torch.nn import Module, Dropout, Embedding, Flatten, Sequential, Linear, Conv2d, ConvTranspose2d, Hardswish, Softmax, Mish, Hardtanh
 
 import numpy as np
 
-from typing import Tuple, TypeVar
+from typing import List, Tuple, TypeVar
 
 L = TypeVar("L")
 """
@@ -130,12 +130,27 @@ class TimeStepExpansion(Module):
         # basically do everything as in time step embedding, but in reversed order
         this.TimeExpansion: Sequential = createTimeStepSequence(ConvTranspose2d, False)
 
+        noteSummaryFeature: List[int] = [EmbeddingSetting.NOTE_ORIGINAL_FEATURE_SIZE] + EmbeddingSetting.NOTE_FEATURE_SUMMARY_LAYER_FEATURE + [1]
+        summaryLayerCount: int = len(noteSummaryFeature) - 1
         # The output from the transformer is linear, so a single layer for each suffices.
         def lineariseFeatureEmbedding() -> Sequential:
+            # add some layers to learn to summarise the probability of each note feature to a single note feature
+            noteSummaryLayer: List[Linear] = list()
+            for i in range(summaryLayerCount):
+                noteSummaryLayer.append(Linear(noteSummaryFeature[i], noteSummaryFeature[i + 1]))
+                # For hidden layers: The Mish function is just like ReLU, but it is self-regularised.
+                # For output layer: There is a significance to use hard Tanh rather than Tanh.
+                # We can see that Tanh is non-linear and has double-opened range (-1.0, 1.0),
+                # this means there is a chance some feature values are never reached, or output with bias.
+                noteSummaryLayer.append(Mish(True) if i < summaryLayerCount - 1 else Hardtanh(inplace = True))
+
             return Sequential(
                 Linear(EmbeddingSetting.NOTE_EMBEDDING_FEATURE_SIZE, EmbeddingSetting.NOTE_ORIGINAL_FEATURE_SIZE),
                 # get a probability of each original feature level, this is the velocity of control changes value at each matrix cell
-                Softmax(3)
+                Softmax(3),
+                *noteSummaryLayer,
+                # remove feature axis of size one, to shape (batch, time step, note)
+                Flatten(2, 3)
             )
         this.VelocityProjection: Sequential = lineariseFeatureEmbedding()
         this.ControlProjection: Sequential = lineariseFeatureEmbedding()
@@ -143,7 +158,7 @@ class TimeStepExpansion(Module):
     def forward(this, x: Tensor) -> Tensor:
         """
         Input: shape of output of full embedding.
-        Output: shape of input of time step embedding. The output is activated back to integer with the same range as input to the full embedding.
+        Output: shape of input of time step embedding. The output is activated to signed normalised range.
         """
         # undo dimensionality reduction of time
         x = this.TimeExpansion(x)
@@ -152,8 +167,4 @@ class TimeStepExpansion(Module):
         # undo note feature embedding
         vel: Tensor = this.VelocityProjection(x[:, :, MidiPianoRoll.sliceVelocity(), :])
         ctrl: Tensor = this.ControlProjection(x[:, :, MidiPianoRoll.sliceControl(), :])
-        # identify the feature with the highest probability, to shape (batch, time step, note)
-        vel = vel.argmax(3).int()
-        ctrl = ctrl.argmax(3).int()
-
         return torch.cat((vel, ctrl), dim = 2)
