@@ -13,3 +13,15 @@ We have only listed the major dependencies here, other commonly used packages su
 
 - We use [pretty_midi](https://github.com/craffel/pretty-midi) for MIDI file read and write.
 - [PyTorch](https://github.com/pytorch/pytorch) is the framework for building our main model.
+
+## Usage
+
+After getting all dependencies and data resolved, you may train the model by running the following command from the project root directory.
+
+```sh
+
+python3 ./Run.py
+
+```
+
+Please note that this model is still experimental, the memory consumption is very high (up to 1TB) that you may need to run the training on a high-memory batch computing node. The inference code is currently unimplemented.

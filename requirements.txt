@@ -1,5 +1,6 @@
 pretty_midi >= 0.2.9
 torch >= 2.0.0
+tensorboard
 
 numpy >= 1.23.0
 pandas >= 2.0.0
