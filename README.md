@@ -24,4 +24,4 @@ python3 ./Run.py
 
 ```
 
-Please note that this model is still experimental, the memory consumption is very high (up to 1TB) that you may need to run the training on a high-memory batch computing node. The inference code is currently unimplemented.
+Please note that this model is an experiment thus unoptimised and unusable. The memory consumption is very high (up to 1TB) that you need to run the training on a high-memory batch computing node. The inference code is unimplemented.
